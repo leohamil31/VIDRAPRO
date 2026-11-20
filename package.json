@@ -1,0 +1,11 @@
+{
+  "name": "vidrapro",
+  "private": true,
+  "workspaces": ["packages/engine", "backend", "frontend"],
+  "scripts": {
+    "build:engine": "npm run build -w @vidrapro/engine",
+    "test": "npm test -w @vidrapro/engine",
+    "dev:api": "npm run build:engine && npm run dev -w @vidrapro/backend",
+    "dev:web": "npm run dev -w @vidrapro/frontend"
+  }
+}
