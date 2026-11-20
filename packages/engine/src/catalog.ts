@@ -1,198 +1,134 @@
-import type { Finish, GlassCode, ProductLine, ProfileGroup, TypologyId } from './types';
+import type { AccessoryUnit, Finish, GlassCode } from './types';
 
-export const ENGINE_VERSION = '1.0.0';
-
-export const FINISHES: Record<Finish, { label: string; hex: string }> = {
-  BRANCO:        { label: 'Branco',        hex: '#F4F6F8' },
-  PRETO:         { label: 'Preto',         hex: '#1F2329' },
-  NATURAL_FOSCO: { label: 'Natural Fosco', hex: '#B9BEC4' },
-  AMADEIRADO:    { label: 'Amadeirado',    hex: '#8A5A36' },
-};
-
-export interface GlassSpec {
-  label: string;
-  thicknessMm: number;
-  tempered: boolean;
-  tint: string; // schematic fill
-}
-
-export const GLASSES: Record<GlassCode, GlassSpec> = {
-  COMUM_INCOLOR_4:      { label: 'Comum Incolor 4mm',      thicknessMm: 4,  tempered: false, tint: '#DCEFFB' },
-  COMUM_MINIBOREAL_4:   { label: 'Mini Boreal 4mm',        thicknessMm: 4,  tempered: false, tint: '#E8EEF3' },
-  TEMPERADO_INCOLOR_6:  { label: 'Temperado Incolor 6mm',  thicknessMm: 6,  tempered: true,  tint: '#D4EBFA' },
-  TEMPERADO_INCOLOR_8:  { label: 'Temperado Incolor 8mm',  thicknessMm: 8,  tempered: true,  tint: '#CDE7F8' },
-  TEMPERADO_FUME_8:     { label: 'Temperado Fumê 8mm',     thicknessMm: 8,  tempered: true,  tint: '#9AA4AE' },
-  TEMPERADO_VERDE_8:    { label: 'Temperado Verde 8mm',    thicknessMm: 8,  tempered: true,  tint: '#BFE3D0' },
-  TEMPERADO_INCOLOR_10: { label: 'Temperado Incolor 10mm', thicknessMm: 10, tempered: true,  tint: '#C6E2F5' },
-};
-
+export const ENGINE_VERSION = '2.0.0';
+export const STANDARD_BAR_MM = 6000;
+export const SAW_KERF_MM = 4;
 /** Glass density ≈ 2.5 kg per m² per mm of thickness. */
 export const GLASS_KG_PER_M2_MM = 2.5;
 
 // ---------------------------------------------------------------------------
-// Profile catalog
-// Codes are internal references. Weights (kg/m) are REFERENCE values: every
-// shop must validate them against its extrusora catalog (they drive price).
+// Finishes (aluminium colour — priced per kg)
 // ---------------------------------------------------------------------------
-
-export interface ProfileSpec { code: string; name: string; group: ProfileGroup; kgPerM: number }
-
-type ProfileRole =
-  | 'TRILHO_SUP' | 'TRILHO_INF' | 'MARCO_LATERAL'
-  | 'FOLHA_MONTANTE_LATERAL' | 'FOLHA_MONTANTE_ENCONTRO'
-  | 'FOLHA_TRAVESSA_SUP' | 'FOLHA_TRAVESSA_INF' | 'BAGUETE';
-
-export const PROFILES: Record<'SUPREMA' | 'GOLD', Record<'JANELA' | 'PORTA', Record<ProfileRole, ProfileSpec>>> = {
-  SUPREMA: {
-    JANELA: {
-      TRILHO_SUP:              { code: 'SUP-TS', name: 'Trilho superior',             group: 'TRILHO',  kgPerM: 0.452 },
-      TRILHO_INF:              { code: 'SUP-TI', name: 'Trilho inferior',             group: 'TRILHO',  kgPerM: 0.548 },
-      MARCO_LATERAL:           { code: 'SUP-ML', name: 'Marco lateral',               group: 'MARCO',   kgPerM: 0.398 },
-      FOLHA_MONTANTE_LATERAL:  { code: 'SUP-FL', name: 'Montante lateral da folha',   group: 'FOLHA',   kgPerM: 0.441 },
-      FOLHA_MONTANTE_ENCONTRO: { code: 'SUP-FE', name: 'Montante de encontro',        group: 'FOLHA',   kgPerM: 0.473 },
-      FOLHA_TRAVESSA_SUP:      { code: 'SUP-TVS', name: 'Travessa superior da folha', group: 'FOLHA',   kgPerM: 0.382 },
-      FOLHA_TRAVESSA_INF:      { code: 'SUP-TVI', name: 'Travessa inferior da folha', group: 'FOLHA',   kgPerM: 0.415 },
-      BAGUETE:                 { code: 'SUP-BG', name: 'Baguete',                     group: 'BAGUETE', kgPerM: 0.118 },
-    },
-    PORTA: {
-      TRILHO_SUP:              { code: 'SUP-PTS', name: 'Trilho superior porta',      group: 'TRILHO',  kgPerM: 0.612 },
-      TRILHO_INF:              { code: 'SUP-PTI', name: 'Trilho inferior porta',      group: 'TRILHO',  kgPerM: 0.705 },
-      MARCO_LATERAL:           { code: 'SUP-PML', name: 'Marco lateral porta',        group: 'MARCO',   kgPerM: 0.521 },
-      FOLHA_MONTANTE_LATERAL:  { code: 'SUP-PFL', name: 'Montante lateral porta',     group: 'FOLHA',   kgPerM: 0.598 },
-      FOLHA_MONTANTE_ENCONTRO: { code: 'SUP-PFE', name: 'Montante encontro porta',    group: 'FOLHA',   kgPerM: 0.634 },
-      FOLHA_TRAVESSA_SUP:      { code: 'SUP-PTVS', name: 'Travessa superior porta',   group: 'FOLHA',   kgPerM: 0.486 },
-      FOLHA_TRAVESSA_INF:      { code: 'SUP-PTVI', name: 'Travessa inferior porta',   group: 'FOLHA',   kgPerM: 0.702 },
-      BAGUETE:                 { code: 'SUP-BG', name: 'Baguete',                     group: 'BAGUETE', kgPerM: 0.118 },
-    },
-  },
-  GOLD: {
-    JANELA: {
-      TRILHO_SUP:              { code: 'GLD-TS', name: 'Trilho superior',             group: 'TRILHO',  kgPerM: 0.610 },
-      TRILHO_INF:              { code: 'GLD-TI', name: 'Trilho inferior',             group: 'TRILHO',  kgPerM: 0.742 },
-      MARCO_LATERAL:           { code: 'GLD-ML', name: 'Marco lateral',               group: 'MARCO',   kgPerM: 0.536 },
-      FOLHA_MONTANTE_LATERAL:  { code: 'GLD-FL', name: 'Montante lateral da folha',   group: 'FOLHA',   kgPerM: 0.598 },
-      FOLHA_MONTANTE_ENCONTRO: { code: 'GLD-FE', name: 'Montante de encontro',        group: 'FOLHA',   kgPerM: 0.645 },
-      FOLHA_TRAVESSA_SUP:      { code: 'GLD-TVS', name: 'Travessa superior da folha', group: 'FOLHA',   kgPerM: 0.517 },
-      FOLHA_TRAVESSA_INF:      { code: 'GLD-TVI', name: 'Travessa inferior da folha', group: 'FOLHA',   kgPerM: 0.561 },
-      BAGUETE:                 { code: 'GLD-BG', name: 'Baguete',                     group: 'BAGUETE', kgPerM: 0.142 },
-    },
-    PORTA: {
-      TRILHO_SUP:              { code: 'GLD-PTS', name: 'Trilho superior porta',      group: 'TRILHO',  kgPerM: 0.834 },
-      TRILHO_INF:              { code: 'GLD-PTI', name: 'Trilho inferior porta',      group: 'TRILHO',  kgPerM: 0.958 },
-      MARCO_LATERAL:           { code: 'GLD-PML', name: 'Marco lateral porta',        group: 'MARCO',   kgPerM: 0.702 },
-      FOLHA_MONTANTE_LATERAL:  { code: 'GLD-PFL', name: 'Montante lateral porta',     group: 'FOLHA',   kgPerM: 0.811 },
-      FOLHA_MONTANTE_ENCONTRO: { code: 'GLD-PFE', name: 'Montante encontro porta',    group: 'FOLHA',   kgPerM: 0.857 },
-      FOLHA_TRAVESSA_SUP:      { code: 'GLD-PTVS', name: 'Travessa superior porta',   group: 'FOLHA',   kgPerM: 0.655 },
-      FOLHA_TRAVESSA_INF:      { code: 'GLD-PTVI', name: 'Travessa inferior porta',   group: 'FOLHA',   kgPerM: 0.948 },
-      BAGUETE:                 { code: 'GLD-BG', name: 'Baguete',                     group: 'BAGUETE', kgPerM: 0.142 },
-    },
-  },
+export const FINISHES: Record<Finish, { label: string; hex: string; defaultPrice: number }> = {
+  BRANCO:        { label: 'Branco',        hex: '#F4F6F8', defaultPrice: 48 },
+  PRETO:         { label: 'Preto',         hex: '#1F2329', defaultPrice: 58 },
+  NATURAL_FOSCO: { label: 'Natural Fosco', hex: '#B9BEC4', defaultPrice: 44 },
+  BRONZE:        { label: 'Bronze',        hex: '#5B4636', defaultPrice: 56 },
+  CHAMPANHE:     { label: 'Champanhe',     hex: '#C9B48F', defaultPrice: 56 },
+  AMADEIRADO:    { label: 'Amadeirado',    hex: '#8A5A36', defaultPrice: 72 },
 };
 
-/** Profiles for the tempered-glass systems (sold in the selected finish). */
+// ---------------------------------------------------------------------------
+// Glass
+// ---------------------------------------------------------------------------
+export interface GlassSpec { label: string; thicknessMm: number; tempered: boolean; laminated?: boolean; tint: string; defaultPrice: number }
+
+export const GLASSES: Record<GlassCode, GlassSpec> = {
+  SEM_VIDRO:              { label: 'Sem vidro',                       thicknessMm: 0,  tempered: false, tint: '#ffffff', defaultPrice: 0 },
+  COMUM_INCOLOR_4:        { label: 'Comum Incolor 4mm',               thicknessMm: 4,  tempered: false, tint: '#DCEFFB', defaultPrice: 95 },
+  COMUM_FUME_4:           { label: 'Comum Fumê 4mm',                  thicknessMm: 4,  tempered: false, tint: '#A7B0B9', defaultPrice: 120 },
+  COMUM_MINIBOREAL_4:     { label: 'Mini Boreal 4mm',                 thicknessMm: 4,  tempered: false, tint: '#E8EEF3', defaultPrice: 120 },
+  COMUM_CANELADO_4:       { label: 'Canelado 4mm',                    thicknessMm: 4,  tempered: false, tint: '#E3ECF2', defaultPrice: 135 },
+  TEMPERADO_INCOLOR_6:    { label: 'Temperado Incolor 6mm',           thicknessMm: 6,  tempered: true,  tint: '#D4EBFA', defaultPrice: 160 },
+  TEMPERADO_INCOLOR_8:    { label: 'Temperado Incolor 8mm',           thicknessMm: 8,  tempered: true,  tint: '#CDE7F8', defaultPrice: 210 },
+  TEMPERADO_FUME_8:       { label: 'Temperado Fumê 8mm',              thicknessMm: 8,  tempered: true,  tint: '#9AA4AE', defaultPrice: 260 },
+  TEMPERADO_VERDE_8:      { label: 'Temperado Verde 8mm',             thicknessMm: 8,  tempered: true,  tint: '#BFE3D0', defaultPrice: 250 },
+  TEMPERADO_BRONZE_8:     { label: 'Temperado Bronze 8mm',            thicknessMm: 8,  tempered: true,  tint: '#C9A98A', defaultPrice: 265 },
+  TEMPERADO_INCOLOR_10:   { label: 'Temperado Incolor 10mm',          thicknessMm: 10, tempered: true,  tint: '#C6E2F5', defaultPrice: 280 },
+  LAMINADO_INCOLOR_8:     { label: 'Laminado Incolor 8mm (4+4)',      thicknessMm: 8,  tempered: false, laminated: true, tint: '#D2E9F7', defaultPrice: 260 },
+  LAMINADO_TEMPERADO_10:  { label: 'Laminado Temperado 10mm (5+5)',   thicknessMm: 10, tempered: true,  laminated: true, tint: '#C8E3F5', defaultPrice: 480 },
+  LAMINADO_TEMPERADO_12:  { label: 'Laminado Temperado 12mm (6+6)',   thicknessMm: 12, tempered: true,  laminated: true, tint: '#C1DFF3', defaultPrice: 560 },
+  REFLETIVO_PRATA_8:      { label: 'Laminado Refletivo Prata 8mm',    thicknessMm: 8,  tempered: false, laminated: true, tint: '#AFC3D1', defaultPrice: 340 },
+};
+
+// ---------------------------------------------------------------------------
+// Accessories — priced individually (unit or metre). Reference prices in BRL.
+// ---------------------------------------------------------------------------
+export interface AccessorySpec { label: string; unit: AccessoryUnit; group: 'Esquadrias' | 'Temperado' | 'Fachada e guarda-corpo' | 'Instalação'; defaultPrice: number }
+
+export const ACCESSORIES = {
+  // Esquadrias
+  ROLDANA_JANELA:        { label: 'Roldana para janela de correr',               unit: 'un', group: 'Esquadrias', defaultPrice: 6.5 },
+  ROLDANA_PORTA:         { label: 'Roldana dupla com rolamento (porta de correr)', unit: 'un', group: 'Esquadrias', defaultPrice: 22 },
+  FECHO_CONCHA:          { label: 'Fecho concha / trinco lateral',               unit: 'un', group: 'Esquadrias', defaultPrice: 14 },
+  FECHO_CENTRAL:         { label: 'Fecho central (encontro de folhas)',          unit: 'un', group: 'Esquadrias', defaultPrice: 18 },
+  FECHO_MAXIM_AR:        { label: 'Fecho / cremona para maxim-ar',               unit: 'un', group: 'Esquadrias', defaultPrice: 24 },
+  FECHADURA_CORRER:      { label: 'Fechadura para porta de correr (bico de papagaio)', unit: 'un', group: 'Esquadrias', defaultPrice: 65 },
+  FECHADURA_GIRO:        { label: 'Fechadura para porta de giro (máquina 40 mm)', unit: 'un', group: 'Esquadrias', defaultPrice: 75 },
+  MACANETA:              { label: 'Conjunto de maçanetas com espelho',           unit: 'un', group: 'Esquadrias', defaultPrice: 55 },
+  CILINDRO_CHAVE:        { label: 'Cilindro com chaves',                         unit: 'un', group: 'Esquadrias', defaultPrice: 32 },
+  PUXADOR_CONCHA:        { label: 'Puxador concha',                              unit: 'un', group: 'Esquadrias', defaultPrice: 6 },
+  PUXADOR_TUBULAR:       { label: 'Puxador tubular 30 cm (alumínio)',            unit: 'un', group: 'Esquadrias', defaultPrice: 48 },
+  DOBRADICA_ALUMINIO:    { label: 'Dobradiça de alumínio',                       unit: 'un', group: 'Esquadrias', defaultPrice: 16 },
+  FERROLHO:              { label: 'Fecho unha / ferrolho (folha passiva)',       unit: 'un', group: 'Esquadrias', defaultPrice: 19 },
+  BRACO_MAXIM_AR:        { label: 'Braço articulado maxim-ar (par)',             unit: 'un', group: 'Esquadrias', defaultPrice: 42 },
+  PIVO_BASCULANTE:       { label: 'Pivô / articulação para basculante (par)',    unit: 'un', group: 'Esquadrias', defaultPrice: 9 },
+  HASTE_BASCULANTE:      { label: 'Haste de comando para basculante',            unit: 'un', group: 'Esquadrias', defaultPrice: 28 },
+  ESCOVA_VEDACAO:        { label: 'Escova de vedação (felpa)',                   unit: 'm',  group: 'Esquadrias', defaultPrice: 1.2 },
+  GUARNICAO_EPDM:        { label: 'Guarnição EPDM para vidro',                   unit: 'm',  group: 'Esquadrias', defaultPrice: 1.8 },
+  BATENTE_STOP:          { label: 'Batente / stop de folha',                     unit: 'un', group: 'Esquadrias', defaultPrice: 2.5 },
+  CANTONEIRA_ESQUADRO:   { label: 'Cantoneira de esquadro (canto 45°)',          unit: 'un', group: 'Esquadrias', defaultPrice: 1.6 },
+  // Temperado
+  ROLDANA_BOX:           { label: 'Roldana para box',                            unit: 'un', group: 'Temperado', defaultPrice: 18 },
+  PUXADOR_BOX:           { label: 'Puxador para box (furo duplo)',               unit: 'un', group: 'Temperado', defaultPrice: 32 },
+  BATEDOR_BOX:           { label: 'Batedor / stop para box',                     unit: 'un', group: 'Temperado', defaultPrice: 6 },
+  SUPORTE_CANTO_BOX:     { label: 'Suporte de canto para box',                   unit: 'un', group: 'Temperado', defaultPrice: 28 },
+  FIXADOR_VIDRO:         { label: 'Fixador / prendedor de vidro fixo',           unit: 'un', group: 'Temperado', defaultPrice: 6 },
+  PIVO_SUPERIOR:         { label: 'Pivô superior (dobradiça superior)',          unit: 'un', group: 'Temperado', defaultPrice: 85 },
+  PIVO_INFERIOR:         { label: 'Pivô inferior (dobradiça inferior)',          unit: 'un', group: 'Temperado', defaultPrice: 85 },
+  DOBRADICA_TEMPERADO:   { label: 'Dobradiça para vidro temperado',              unit: 'un', group: 'Temperado', defaultPrice: 95 },
+  FECHADURA_TEMPERADO:   { label: 'Fechadura de vidro com contra-fechadura',     unit: 'un', group: 'Temperado', defaultPrice: 120 },
+  PUXADOR_TEMPERADO:     { label: 'Puxador tubular para temperado 60 cm',        unit: 'un', group: 'Temperado', defaultPrice: 110 },
+  ROLDANA_APARENTE:      { label: 'Roldana aparente para porta de correr',       unit: 'un', group: 'Temperado', defaultPrice: 75 },
+  GUIA_INFERIOR:         { label: 'Guia inferior de piso (porta de correr)',     unit: 'un', group: 'Temperado', defaultPrice: 22 },
+  ROLDANA_JANELA_TEMP:   { label: 'Roldana para janela temperada',               unit: 'un', group: 'Temperado', defaultPrice: 14 },
+  TRINCO_JANELA_TEMP:    { label: 'Trinco / fecho para janela temperada',        unit: 'un', group: 'Temperado', defaultPrice: 22 },
+  ROLDANA_SACADA:        { label: 'Carrinho / roldana para sacada',              unit: 'un', group: 'Temperado', defaultPrice: 45 },
+  PIVO_SACADA:           { label: 'Pivô giratório de sacada',                    unit: 'un', group: 'Temperado', defaultPrice: 38 },
+  FECHO_SACADA:          { label: 'Fecho / trava de folha de sacada',            unit: 'un', group: 'Temperado', defaultPrice: 18 },
+  CALCO_U:               { label: 'Calço / cunha de fixação no perfil U',        unit: 'un', group: 'Temperado', defaultPrice: 3.5 },
+  // Fachada e guarda-corpo
+  ANCORAGEM_FACHADA:     { label: 'Ancoragem / suporte de coluna (fachada)',     unit: 'un', group: 'Fachada e guarda-corpo', defaultPrice: 35 },
+  SILICONE_ESTRUTURAL:   { label: 'Silicone estrutural (sachê 600 ml)',          unit: 'un', group: 'Fachada e guarda-corpo', defaultPrice: 85 },
+  FIXADOR_COLUNA:        { label: 'Chapa de fixação de coluna (guarda-corpo)',   unit: 'un', group: 'Fachada e guarda-corpo', defaultPrice: 25 },
+  TAMPA_CORRIMAO:        { label: 'Tampa / terminal de corrimão',                unit: 'un', group: 'Fachada e guarda-corpo', defaultPrice: 9 },
+  // Instalação
+  PARAFUSO_KIT:          { label: 'Kit parafusos e buchas de instalação',       unit: 'un', group: 'Instalação', defaultPrice: 8 },
+  SILICONE:              { label: 'Silicone neutro (tubo 280 g)',                unit: 'un', group: 'Instalação', defaultPrice: 28 },
+  ESPUMA_PU:             { label: 'Espuma expansiva PU (lata)',                  unit: 'un', group: 'Instalação', defaultPrice: 35 },
+} satisfies Record<string, AccessorySpec>;
+
+export type AccessoryCode = keyof typeof ACCESSORIES;
+
+// ---------------------------------------------------------------------------
+// Tempered-glass system profiles (not line-dependent, sold in the chosen finish)
+// ---------------------------------------------------------------------------
 export const TEMPERED_PROFILES = {
-  BOX_TRILHO_SUP:   { code: 'BOX-TS',  name: 'Trilho superior box',         group: 'TRILHO'     as const, kgPerM: 0.540 },
-  BOX_U_INF:        { code: 'BOX-UI',  name: 'Perfil U inferior (fixos)',    group: 'MARCO'      as const, kgPerM: 0.155 },
-  BOX_U_LAT:        { code: 'BOX-UL',  name: 'Perfil U lateral',             group: 'MARCO'      as const, kgPerM: 0.155 },
-  BOX_GUIA:         { code: 'BOX-GD',  name: 'Guia / cantoneira de batida',  group: 'ACABAMENTO' as const, kgPerM: 0.120 },
-  PIV_BATENTE:      { code: 'PIV-BT',  name: 'Batente (cantoneira)',         group: 'ACABAMENTO' as const, kgPerM: 0.210 },
+  BOX_TRILHO:        { code: 'TP-BXT', name: 'Trilho superior box',                  kgPerM: 0.540 },
+  U_INFERIOR:        { code: 'TP-UI',  name: 'Perfil U inferior (fixos)',             kgPerM: 0.155 },
+  U_LATERAL:         { code: 'TP-UL',  name: 'Perfil U lateral',                      kgPerM: 0.155 },
+  U_SUPERIOR:        { code: 'TP-US',  name: 'Perfil U superior',                     kgPerM: 0.155 },
+  CANTONEIRA:        { code: 'TP-CT',  name: 'Cantoneira de batida',                  kgPerM: 0.120 },
+  BATENTE:           { code: 'TP-BT',  name: 'Batente (cantoneira de porta)',         kgPerM: 0.210 },
+  TRILHO_APARENTE:   { code: 'TP-TAP', name: 'Trilho aparente (porta de correr)',     kgPerM: 1.150 },
+  JANELA_TRILHO_SUP: { code: 'TP-JTS', name: 'Trilho superior janela temperada',      kgPerM: 0.480 },
+  JANELA_TRILHO_INF: { code: 'TP-JTI', name: 'Trilho inferior janela temperada',      kgPerM: 0.520 },
+  SACADA_TRILHO_SUP: { code: 'TP-STS', name: 'Trilho superior sacada',                kgPerM: 1.380 },
+  SACADA_TRILHO_INF: { code: 'TP-STI', name: 'Trilho inferior sacada',                kgPerM: 1.120 },
+  SACADA_PERFIL_FOLHA:{ code: 'TP-SPF', name: 'Perfil de folha sacada (sup./inf.)',   kgPerM: 0.410 },
+  SACADA_ARREMATE:   { code: 'TP-SAR', name: 'Perfil de arremate lateral sacada',     kgPerM: 0.300 },
+  GC_PERFIL_U:       { code: 'TP-GCU', name: 'Perfil U de base guarda-corpo (embutido)', kgPerM: 2.350 },
+  GC_CORRIMAO:       { code: 'TP-GCC', name: 'Corrimão com fenda (tubo de topo)',     kgPerM: 0.980 },
+} as const;
+
+export const TEMPERED_PARAMS = {
+  transpasse: 50,
+  box: { maxWidth2F: 1400, alturaFixoDesc: 15, alturaMovelDesc: 35, uLateralDesc: 15 },
+  pivot: { folgaLateral: 4, folgaPiso: 10, folgaSuperior: 5, maxLeafKg: 80 },
+  abrir: { folgaLateral: 3, folgaPiso: 10, folgaSuperior: 5 },
+  correr: { maxWidth2F: 2000, alturaFixoDesc: 15, alturaMovelDesc: 30 },
+  janela: { alturaDesc: 40 },
+  fixo: { folga: 5 },
+  sacada: { painelMax: 700, folgaLateral: 10, junta: 3, alturaDesc: 60 },
+  guardaCorpo: { painelMax: 1200, junta: 10, folgaLateral: 5, embutimento: 90, folgaTopo: 40 },
 };
-
-// ---------------------------------------------------------------------------
-// Deduction parameters (mm). Kept as data so the workshop can audit them and a
-// future "Fórmulas" screen can override them per tenant.
-// ---------------------------------------------------------------------------
-
-export interface SlidingParams {
-  marcoLateralDesc: number; // marco lateral = H − this (sits between the trilhos)
-  folgaLateral: number;     // gap between leaf and marco, each side
-  transpasse: number;       // overlap between adjacent leaves
-  encontroCentral: number;  // extra overlap at the 4-leaf central meeting
-  folhaAlturaDesc: number;  // leaf height = H − this
-  montanteLargura: number;  // visible width of leaf stile (montante)
-  travessaAltura: number;   // visible height of leaf rail (travessa)
-  encaixeVidro: number;     // glass bite into each profile
-}
-
-export const SLIDING_PARAMS: Record<'SUPREMA' | 'GOLD', Record<'JANELA' | 'PORTA', SlidingParams>> = {
-  SUPREMA: {
-    JANELA: { marcoLateralDesc: 32, folgaLateral: 10, transpasse: 50, encontroCentral: 20, folhaAlturaDesc: 45, montanteLargura: 30, travessaAltura: 30, encaixeVidro: 8 },
-    PORTA:  { marcoLateralDesc: 38, folgaLateral: 10, transpasse: 55, encontroCentral: 20, folhaAlturaDesc: 52, montanteLargura: 36, travessaAltura: 40, encaixeVidro: 9 },
-  },
-  GOLD: {
-    JANELA: { marcoLateralDesc: 36, folgaLateral: 12, transpasse: 60, encontroCentral: 24, folhaAlturaDesc: 50, montanteLargura: 38, travessaAltura: 38, encaixeVidro: 10 },
-    PORTA:  { marcoLateralDesc: 42, folgaLateral: 12, transpasse: 64, encontroCentral: 24, folhaAlturaDesc: 58, montanteLargura: 44, travessaAltura: 48, encaixeVidro: 11 },
-  },
-};
-
-export const BOX_PARAMS = {
-  transpasse: 50,         // overlap between fixed and sliding panel
-  maxWidth2F: 1400,       // above this the box becomes 4 panels
-  trilhoAltura: 15,       // fixed panel height = H − this (U inferior + trilho)
-  folgaMovel: 35,         // sliding panel height = H − this (roldanas + piso)
-  uLateralDesc: 15,       // U lateral = H − this
-};
-
-export const PIVOT_PARAMS = {
-  folgaLateral: 4,        // each side
-  folgaPiso: 10,
-  folgaSuperior: 5,
-  maxWidth: 1100,
-  maxLeafKg: 80,
-};
-
-// ---------------------------------------------------------------------------
-// Typologies
-// ---------------------------------------------------------------------------
-
-export interface TypologyMeta {
-  id: TypologyId;
-  label: string;
-  short: string;
-  lines: ProductLine[];
-  glasses: GlassCode[];
-  defaultGlass: GlassCode;
-  minW: number; maxW: number; minH: number; maxH: number;
-  defaultW: number; defaultH: number;
-}
-
-const TEMPERED_8_10: GlassCode[] = ['TEMPERADO_INCOLOR_8', 'TEMPERADO_FUME_8', 'TEMPERADO_VERDE_8', 'TEMPERADO_INCOLOR_10'];
-const WINDOW_GLASS: GlassCode[] = ['COMUM_INCOLOR_4', 'COMUM_MINIBOREAL_4', 'TEMPERADO_INCOLOR_6', 'TEMPERADO_INCOLOR_8', 'TEMPERADO_FUME_8', 'TEMPERADO_VERDE_8'];
-
-export const TYPOLOGIES: Record<TypologyId, TypologyMeta> = {
-  JANELA_CORRER_2F: {
-    id: 'JANELA_CORRER_2F', label: 'Janela de Correr 2 Folhas', short: 'Janela 2F',
-    lines: ['SUPREMA'], glasses: WINDOW_GLASS, defaultGlass: 'COMUM_INCOLOR_4',
-    minW: 500, maxW: 2400, minH: 400, maxH: 1600, defaultW: 1200, defaultH: 1000,
-  },
-  JANELA_CORRER_4F: {
-    id: 'JANELA_CORRER_4F', label: 'Janela de Correr 4 Folhas', short: 'Janela 4F',
-    lines: ['SUPREMA'], glasses: WINDOW_GLASS, defaultGlass: 'COMUM_INCOLOR_4',
-    minW: 1200, maxW: 4000, minH: 400, maxH: 1600, defaultW: 2000, defaultH: 1200,
-  },
-  PORTA_CORRER_2F: {
-    id: 'PORTA_CORRER_2F', label: 'Porta de Correr 2 Folhas', short: 'Porta 2F',
-    lines: ['SUPREMA', 'GOLD'], glasses: ['TEMPERADO_INCOLOR_6', 'TEMPERADO_INCOLOR_8', 'TEMPERADO_FUME_8', 'TEMPERADO_VERDE_8', 'COMUM_MINIBOREAL_4'],
-    defaultGlass: 'TEMPERADO_INCOLOR_6',
-    minW: 1000, maxW: 3200, minH: 1800, maxH: 2800, defaultW: 1600, defaultH: 2100,
-  },
-  BOX_FRONTAL: {
-    id: 'BOX_FRONTAL', label: 'Box Frontal Padrão (Temperado 8mm)', short: 'Box Frontal',
-    lines: ['TEMPERADO'], glasses: ['TEMPERADO_INCOLOR_8', 'TEMPERADO_FUME_8', 'TEMPERADO_VERDE_8'], defaultGlass: 'TEMPERADO_INCOLOR_8',
-    minW: 700, maxW: 2400, minH: 1700, maxH: 2200, defaultW: 1200, defaultH: 1900,
-  },
-  PORTA_PIVOTANTE: {
-    id: 'PORTA_PIVOTANTE', label: 'Porta Pivotante (Temperado 8/10mm)', short: 'Pivotante',
-    lines: ['TEMPERADO'], glasses: TEMPERED_8_10, defaultGlass: 'TEMPERADO_INCOLOR_10',
-    minW: 600, maxW: 1100, minH: 1800, maxH: 2700, defaultW: 900, defaultH: 2100,
-  },
-};
-
-export const LINE_LABEL: Record<ProductLine, string> = {
-  SUPREMA: 'Linha Suprema',
-  GOLD: 'Linha Gold',
-  TEMPERADO: 'Vidro Temperado',
-};
-
-export const STANDARD_BAR_MM = 6000;
-export const SAW_KERF_MM = 4;

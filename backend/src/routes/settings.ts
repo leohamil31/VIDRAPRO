@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { ACCESSORIES, allLines, validateLineDefinition, type LineDefinition } from '@vidrapro/engine';
 import { withTenant } from '../db';
 import { env } from '../env';
 import { ah, HttpError } from '../lib/http';
@@ -57,12 +58,14 @@ const pricesSchema = z.array(z.object({
   label: z.string().trim().min(2).max(120),
   price: z.number().min(0).max(1_000_000),
   active: z.boolean().default(true),
+  unit: z.enum(['kg', 'm2', 'un', 'm']).optional(),
 })).max(300);
 
 settingsRouter.put('/prices', requireRole('owner', 'admin'), ah(async (req, res) => {
   const a = req.auth!;
   const items = pricesSchema.parse(req.body);
-  const unit = { aluminum: 'kg', glass: 'm2', accessory: 'un' } as const;
+  const unitFor = (p: (typeof items)[number]) =>
+    p.category === 'aluminum' ? 'kg' : p.category === 'glass' ? 'm2' : (ACCESSORIES[p.key as keyof typeof ACCESSORIES]?.unit ?? p.unit ?? 'un');
   const prices = await withTenant(a.tid, a.sub, async (db) => {
     for (const p of items) {
       await db.query(
@@ -70,7 +73,7 @@ settingsRouter.put('/prices', requireRole('owner', 'admin'), ah(async (req, res)
          VALUES (current_tenant_id(), $1, $2, $3, $4, $5, $6)
          ON CONFLICT (tenant_id, category, key)
          DO UPDATE SET label = EXCLUDED.label, price = EXCLUDED.price, active = EXCLUDED.active`,
-        [p.category, p.key, p.label, unit[p.category], p.price, p.active]);
+        [p.category, p.key, p.label, unitFor(p), p.price, p.active]);
     }
     return (await db.query(
       `SELECT id, category, key, label, unit, price::float AS price, active FROM material_prices ORDER BY category, label`)).rows;
@@ -107,4 +110,67 @@ settingsRouter.post('/logo', requireRole('owner', 'admin'), ah(async (req, res) 
 
   await withTenant(a.tid, a.sub, (db) => db.query(`UPDATE tenants SET logo_url = $1 WHERE id = current_tenant_id()`, [url]));
   res.json({ logo_url: url });
+}));
+
+// ---------------------------------------------------------------------------
+// Aluminium lines: built-in (read-only, from the engine) + tenant custom lines
+// ---------------------------------------------------------------------------
+const lineSchema = z.object({
+  id: z.string().regex(/^[A-Z0-9_]{2,40}$/),
+  name: z.string().trim().min(2).max(80),
+  family: z.enum(['ESQUADRIA', 'FACHADA', 'GUARDA_CORPO']),
+  description: z.string().max(500).optional(),
+  basedOn: z.string().max(40).optional(),
+  profiles: z.record(z.object({ code: z.string().trim().min(1).max(30), name: z.string().trim().min(1).max(80), kgPerM: z.number().positive().max(20) })),
+  params: z.record(z.record(z.number().min(0).max(5000))),
+});
+
+const rowToLine = (r: { key: string; name: string; family: LineDefinition['family']; definition: Partial<LineDefinition> }): LineDefinition => ({
+  id: r.key, name: r.name, family: r.family, builtIn: false, description: r.definition.description,
+  basedOn: r.definition.basedOn, profiles: r.definition.profiles ?? {}, params: r.definition.params ?? {},
+});
+
+settingsRouter.get('/lines', ah(async (req, res) => {
+  const a = req.auth!;
+  const custom = await withTenant(a.tid, a.sub, async (db) =>
+    (await db.query(`SELECT key, name, family, definition FROM product_lines WHERE active ORDER BY name`)).rows.map(rowToLine));
+  res.json({ lines: allLines(custom) });
+}));
+
+async function saveLine(tid: string, uid: string, body: unknown, expectedId?: string) {
+  const line = lineSchema.parse(body) as LineDefinition;
+  if (expectedId && line.id !== expectedId) throw new HttpError(400, 'O identificador da linha não pode mudar.');
+  if (allLines().some((l) => l.builtIn && l.id === line.id)) throw new HttpError(409, 'Esse identificador é de uma linha padrão. Escolha outro.');
+  const issues = validateLineDefinition(line);
+  if (issues.length) throw new HttpError(422, issues.join(' '), 'LINE_INVALID', issues);
+  const definition = { description: line.description, basedOn: line.basedOn, profiles: line.profiles, params: line.params };
+  return withTenant(tid, uid, async (db) => {
+    const { rows: [r] } = await db.query(
+      `INSERT INTO product_lines (tenant_id, key, name, family, definition, active)
+       VALUES (current_tenant_id(), $1, $2, $3, $4, true)
+       ON CONFLICT (tenant_id, key) DO UPDATE SET name = EXCLUDED.name, family = EXCLUDED.family,
+         definition = EXCLUDED.definition, active = true
+       RETURNING key, name, family, definition`,
+      [line.id, line.name, line.family, JSON.stringify(definition)]);
+    return rowToLine(r);
+  });
+}
+
+settingsRouter.post('/lines', requireRole('owner', 'admin'), ah(async (req, res) => {
+  const a = req.auth!;
+  res.status(201).json({ line: await saveLine(a.tid, a.sub, req.body) });
+}));
+
+settingsRouter.put('/lines/:id', requireRole('owner', 'admin'), ah(async (req, res) => {
+  const a = req.auth!;
+  res.json({ line: await saveLine(a.tid, a.sub, req.body, req.params.id) });
+}));
+
+/** Soft delete: old quotes keep their snapshot; the line just stops being offered. */
+settingsRouter.delete('/lines/:id', requireRole('owner', 'admin'), ah(async (req, res) => {
+  const a = req.auth!;
+  const n = await withTenant(a.tid, a.sub, async (db) =>
+    (await db.query(`UPDATE product_lines SET active = false WHERE key = $1`, [req.params.id])).rowCount);
+  if (!n) throw new HttpError(404, 'Linha não encontrada.');
+  res.status(204).end();
 }));

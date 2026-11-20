@@ -1,45 +1,70 @@
 /**
- * VidraPro Engine — shared types.
+ * VidraPro Engine v2 — shared types.
  *
- * The engine is split in two independent layers:
- *   1. cutting/  → pure geometry: dimensions in, Bill of Materials (BOM) out.
- *                  Knows nothing about money. Used by the workshop.
- *   2. pricing/  → consumes the BOM + tenant price table, returns costs/prices.
- *                  Knows nothing about deductions.
- * quote.ts glues both for a quote item.
+ *   cutting/  → geometry only: dimensions + line definition → Bill of Materials
+ *               (profiles, glass, accessories) + technical drawing. No money.
+ *   pricing/  → BOM + tenant price table → cost / price. No deductions.
+ *   lines.ts  → aluminium lines are DATA (built-in + tenant custom lines).
  */
 
-export type Finish = 'BRANCO' | 'PRETO' | 'NATURAL_FOSCO' | 'AMADEIRADO';
+export type Finish = 'BRANCO' | 'PRETO' | 'NATURAL_FOSCO' | 'AMADEIRADO' | 'BRONZE' | 'CHAMPANHE';
+
+/** Section shown in the builder. */
+export type Category = 'ESQUADRIA' | 'TEMPERADO';
+
+/** Which kind of line a model needs. */
+export type LineFamily = 'ESQUADRIA' | 'FACHADA' | 'GUARDA_CORPO' | 'TEMPERADO';
 
 export type TypologyId =
-  | 'JANELA_CORRER_2F'
-  | 'JANELA_CORRER_4F'
-  | 'PORTA_CORRER_2F'
-  | 'BOX_FRONTAL'
-  | 'PORTA_PIVOTANTE';
+  // Esquadrias de alumínio
+  | 'JANELA_CORRER_2F' | 'JANELA_CORRER_4F' | 'JANELA_VENEZIANA_3F' | 'JANELA_MAXIM_AR'
+  | 'JANELA_BASCULANTE' | 'JANELA_ABRIR_2F' | 'FIXO_ALUMINIO'
+  | 'PORTA_CORRER_2F' | 'PORTA_CORRER_4F' | 'PORTA_VENEZIANA_CORRER_3F'
+  | 'PORTA_GIRO_VIDRO' | 'PORTA_GIRO_2F_VIDRO' | 'PORTA_GIRO_LAMBRI' | 'PORTA_GIRO_VENEZIANA'
+  | 'PAINEL_LAMBRI' | 'FACHADA_PELE_VIDRO' | 'GUARDA_CORPO_ALUMINIO'
+  // Vidro temperado (Blindex)
+  | 'BOX_FRONTAL' | 'BOX_CANTO' | 'PORTA_PIVOTANTE' | 'PORTA_ABRIR_TEMPERADO' | 'PORTA_CORRER_TEMPERADO'
+  | 'JANELA_TEMPERADO_2F' | 'JANELA_TEMPERADO_4F' | 'FIXO_TEMPERADO'
+  | 'SACADA_RETRATIL' | 'GUARDA_CORPO_TEMPERADO';
 
-export type ProductLine = 'SUPREMA' | 'GOLD' | 'TEMPERADO';
-
-/** Glass codes follow `${PROCESS}_${COLOR}_${THICKNESS}` and are the price-table keys. */
 export type GlassCode =
-  | 'COMUM_INCOLOR_4'
-  | 'COMUM_MINIBOREAL_4'
-  | 'TEMPERADO_INCOLOR_6'
-  | 'TEMPERADO_INCOLOR_8'
-  | 'TEMPERADO_FUME_8'
-  | 'TEMPERADO_VERDE_8'
-  | 'TEMPERADO_INCOLOR_10';
+  | 'SEM_VIDRO'
+  | 'COMUM_INCOLOR_4' | 'COMUM_FUME_4' | 'COMUM_MINIBOREAL_4' | 'COMUM_CANELADO_4'
+  | 'TEMPERADO_INCOLOR_6' | 'TEMPERADO_INCOLOR_8' | 'TEMPERADO_FUME_8' | 'TEMPERADO_VERDE_8'
+  | 'TEMPERADO_BRONZE_8' | 'TEMPERADO_INCOLOR_10'
+  | 'LAMINADO_INCOLOR_8' | 'LAMINADO_TEMPERADO_10' | 'LAMINADO_TEMPERADO_12' | 'REFLETIVO_PRATA_8';
 
-export type ProfileGroup = 'MARCO' | 'TRILHO' | 'FOLHA' | 'BAGUETE' | 'ACABAMENTO';
+/** Kept as `string` so tenants can create their own lines. */
+export type ProductLine = string;
+
+export type ProfileGroup = 'MARCO' | 'TRILHO' | 'FOLHA' | 'BAGUETE' | 'LAMBRI' | 'VENEZIANA' | 'ESTRUTURA' | 'ACABAMENTO';
 
 export interface ItemInput {
   typology: TypologyId;
   line: ProductLine;
-  widthMm: number;   // vão (opening) width
-  heightMm: number;  // vão (opening) height
+  widthMm: number;    // vão: largura (box de canto: lado frontal)
+  heightMm: number;   // vão: altura
+  depthMm?: number;   // box de canto: lado lateral
   finish: Finish;
   glassCode: GlassCode;
   quantity: number;
+}
+
+// ---------------------------------------------------------------------------
+// Lines
+// ---------------------------------------------------------------------------
+
+export interface ProfileSpec { code: string; name: string; kgPerM: number }
+
+export interface LineDefinition {
+  id: string;                 // key stored in quote items (e.g. "SUPREMA", "MINHA_LINHA_SUBLIME")
+  name: string;
+  family: LineFamily;
+  description?: string;
+  builtIn?: boolean;
+  basedOn?: string;           // id of the line it was copied from
+  profiles: Record<string, ProfileSpec>;               // role → profile
+  params: Record<string, Record<string, number>>;      // group → key → mm
 }
 
 // ---------------------------------------------------------------------------
@@ -47,49 +72,81 @@ export interface ItemInput {
 // ---------------------------------------------------------------------------
 
 export interface ProfileCut {
-  code: string;          // profile reference
+  role: string;
+  code: string;
   name: string;
   group: ProfileGroup;
-  lengthMm: number;      // cut length
-  qty: number;           // pieces per ONE unit of the item
+  lengthMm: number;
+  qty: number;           // per ONE unit
   cutAngle: 45 | 90;
   kgPerM: number;
-  formula: string;       // human-readable deduction, shown in the workshop list
+  formula: string;
 }
 
 export interface GlassCut {
-  label: string;         // "Folha móvel", "Fixo"
+  label: string;
   glassCode: GlassCode;
   widthMm: number;
   heightMm: number;
-  qty: number;           // per ONE unit
+  qty: number;
   tempered: boolean;
   formula: string;
-  notes?: string;        // furos/recortes — must be sent to the tempering plant
+  notes?: string;
 }
+
+export type AccessoryUnit = 'un' | 'm';
 
 export interface AccessoryLine {
   code: string;          // price-table key
   name: string;
-  qty: number;           // per ONE unit
+  unit: AccessoryUnit;
+  qty: number;           // per ONE unit (metres for unit 'm')
+}
+
+// ---------------------------------------------------------------------------
+// Drawing (generated by the engine, rendered by any client)
+// ---------------------------------------------------------------------------
+
+export type PanelFill = 'glass' | 'lambri' | 'veneziana' | 'none';
+export type PanelMotion =
+  | 'fixed' | 'slide' | 'hinge-left' | 'hinge-right' | 'top-hung' | 'tilt' | 'pivot' | 'fold';
+
+export interface DrawingPanel {
+  x: number; y: number; w: number; h: number;   // mm, origin = top-left of the opening
+  fill: PanelFill;
+  motion: PanelMotion;
+  sash?: boolean;        // draws a profile border (aluminium leaf)
+  layer?: 0 | 1;         // 0 = rear track
+  label?: string;
+}
+
+export interface Drawing {
+  widthMm: number;       // total drawn width (box de canto: front + side)
+  heightMm: number;
+  frame: 'aluminum' | 'tempered' | 'facade' | 'rail' | 'none';
+  frameFaceMm: number;   // visible frame width
+  panels: DrawingPanel[];
+  lines?: { x1: number; y1: number; x2: number; y2: number; kind: 'mullion' | 'post' | 'corner' | 'track' | 'rail' }[];
+  floor?: boolean;
 }
 
 export interface LeafGeometry {
   count: number;
   widthMm: number;
   heightMm: number;
-  /** for schematic rendering: which leaves are fixed */
   fixed: boolean[];
 }
 
 export interface CuttingList {
   typology: TypologyId;
   line: ProductLine;
+  lineName: string;
   input: ItemInput;
   profiles: ProfileCut[];
   glasses: GlassCut[];
   accessories: AccessoryLine[];
   leaves: LeafGeometry;
+  drawing: Drawing;
   warnings: string[];
 }
 
@@ -109,21 +166,15 @@ export interface BarPlan {
 export interface PriceTable {
   aluminumPerKg: Partial<Record<Finish, number>>;
   glassPerM2: Partial<Record<GlassCode, number>>;
-  accessories: Record<string, number>;
+  accessories: Record<string, number>;   // per un or per metre, see ACCESSORIES[code].unit
 }
 
 export interface PricingSettings {
-  /** markup over cost, e.g. 60 → price = cost × 1.60 */
   marginPct: number;
-  /** aluminum cutting loss/scrap, applied over net weight */
   aluminumLossPct: number;
-  /** tempered glass billing: round each side UP to this step (industry practice: 50mm) */
   glassRoundMm: number;
-  /** minimum billed area per glass piece */
   glassMinAreaM2: number;
-  /** labor as % of material cost (0 if included in margin) */
   laborPct: number;
-  /** fixed installation fee per unit (R$) */
   installationPerItem: number;
 }
 
@@ -134,13 +185,13 @@ export interface PriceBreakdown {
     billedM2: number;
     cost: number;
   };
-  accessories: { lines: { code: string; name: string; qty: number; unitPrice: number; cost: number }[]; cost: number };
-  materialCost: number;   // per unit
-  laborCost: number;      // per unit
-  installation: number;   // per unit
-  unitCost: number;       // per unit
+  accessories: { lines: { code: string; name: string; unit: AccessoryUnit; qty: number; unitPrice: number; cost: number }[]; cost: number };
+  materialCost: number;
+  laborCost: number;
+  installation: number;
+  unitCost: number;
   marginPct: number;
-  unitPrice: number;      // per unit, selling
+  unitPrice: number;
   quantity: number;
   totalCost: number;
   totalPrice: number;

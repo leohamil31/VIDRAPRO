@@ -15,14 +15,16 @@ export const quotesRouter = Router();
 
 const STATUSES = ['rascunho', 'enviado', 'aprovado', 'em_producao', 'concluido', 'perdido'] as const;
 
+// Codes are validated by the engine (validateItem) against the catalogue + tenant lines.
+const code = z.string().regex(/^[A-Z0-9_]{2,40}$/);
 const itemSchema = z.object({
-  typology: z.enum(['JANELA_CORRER_2F', 'JANELA_CORRER_4F', 'PORTA_CORRER_2F', 'BOX_FRONTAL', 'PORTA_PIVOTANTE']),
-  line: z.enum(['SUPREMA', 'GOLD', 'TEMPERADO']),
+  typology: code,
+  line: code,
   widthMm: z.number().int(),
   heightMm: z.number().int(),
-  finish: z.enum(['BRANCO', 'PRETO', 'NATURAL_FOSCO', 'AMADEIRADO']),
-  glassCode: z.enum(['COMUM_INCOLOR_4', 'COMUM_MINIBOREAL_4', 'TEMPERADO_INCOLOR_6', 'TEMPERADO_INCOLOR_8',
-    'TEMPERADO_FUME_8', 'TEMPERADO_VERDE_8', 'TEMPERADO_INCOLOR_10']),
+  depthMm: z.number().int().optional().nullable(),
+  finish: code,
+  glassCode: code,
   quantity: z.number().int(),
   locationLabel: z.string().trim().max(80).optional().nullable(),
 });
@@ -41,8 +43,9 @@ const quoteSchema = z.object({
 async function computeQuote(db: PoolClient, body: z.infer<typeof quoteSchema>) {
   const ctx = await loadPricingContext(db, body.marginPct);
   const results = body.items.map((raw) => {
-    const { locationLabel, ...input } = raw;
-    return { locationLabel: locationLabel ?? null, result: calculateItem(input as ItemInput, ctx.table, ctx.settings) };
+    const { locationLabel, depthMm, ...input } = raw;
+    const item = { ...input, depthMm: depthMm ?? undefined } as ItemInput;
+    return { locationLabel: locationLabel ?? null, result: calculateItem(item, ctx.table, ctx.settings, ctx.lines) };
   });
   const missing = [...new Set(results.flatMap((r) => r.result.pricing.missingPrices))];
   if (missing.length) throw new HttpError(422, `Cadastre os preços: ${missing.join(', ')}.`, 'MISSING_PRICES', missing);
@@ -53,12 +56,12 @@ async function computeQuote(db: PoolClient, body: z.infer<typeof quoteSchema>) {
 async function insertItems(db: PoolClient, quoteId: string, results: Awaited<ReturnType<typeof computeQuote>>['results']) {
   for (const [pos, { locationLabel, result: r }] of results.entries()) {
     await db.query(
-      `INSERT INTO quote_items (tenant_id, quote_id, position, typology, line, location_label, width_mm, height_mm,
+      `INSERT INTO quote_items (tenant_id, quote_id, position, typology, line, location_label, width_mm, height_mm, depth_mm,
          finish, glass_code, quantity, unit_cost, unit_price, total_price, description, price_breakdown, cutting_list, engine_version)
-       VALUES (current_tenant_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+       VALUES (current_tenant_id(), $1, $2, $3, $4, $5, $6, $7, $18, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
       [quoteId, pos, r.input.typology, r.input.line, locationLabel, r.input.widthMm, r.input.heightMm, r.input.finish,
         r.input.glassCode, r.input.quantity, r.pricing.unitCost, r.pricing.unitPrice, r.pricing.totalPrice, r.description,
-        JSON.stringify(r.pricing), JSON.stringify(r.cutting), r.engineVersion]);
+        JSON.stringify(r.pricing), JSON.stringify(r.cutting), r.engineVersion, r.input.depthMm ?? null]);
   }
 }
 
@@ -78,7 +81,7 @@ quotesRouter.post('/preview', ah(async (req, res) => {
 quotesRouter.get('/pricing-context', ah(async (req, res) => {
   const a = req.auth!;
   const ctx = await withTenant(a.tid, a.sub, (db) => loadPricingContext(db));
-  res.json({ prices: ctx.table, settings: ctx.settings });
+  res.json({ prices: ctx.table, settings: ctx.settings, lines: ctx.lines });
 }));
 
 // ---------------------------------------------------------------------------
@@ -147,7 +150,7 @@ quotesRouter.get('/:id', ah(async (req, res) => {
          FROM quotes q WHERE q.id = $1`, [id]);
     if (!quote) throw new HttpError(404, 'Orçamento não encontrado.');
     const { rows: items } = await db.query(
-      `SELECT id, position, typology, line, location_label, width_mm, height_mm, finish, glass_code, quantity,
+      `SELECT id, position, typology, line, location_label, width_mm, height_mm, depth_mm, finish, glass_code, quantity,
               unit_cost::float AS unit_cost, unit_price::float AS unit_price, total_price::float AS total_price,
               description, price_breakdown, cutting_list, engine_version
          FROM quote_items WHERE quote_id = $1 ORDER BY position`, [id]);
@@ -250,8 +253,9 @@ quotesRouter.post('/:id/share', ah(async (req, res) => {
     return { q, items, companyName: t.name };
   });
   const publicUrl = `${env.APP_PUBLIC_URL}/p/${out.q.public_token}`;
+  // The internal quote number is NOT sent to the customer.
   const message = buildWhatsAppMessage({
-    companyName: out.companyName, customerName: out.q.customer_name, quoteNumber: out.q.number,
+    companyName: out.companyName, customerName: out.q.customer_name,
     items: out.items, total: out.q.total, discountValue: out.q.discount_value, validUntil: out.q.valid_until, publicUrl,
   });
   res.json({ url: waMeLink(out.q.customer_phone, message), message, publicUrl });

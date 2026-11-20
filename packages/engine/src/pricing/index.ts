@@ -1,4 +1,4 @@
-import { FINISHES, GLASSES } from '../catalog';
+import { ACCESSORIES, FINISHES, GLASSES } from '../catalog';
 import type { CuttingList, PriceBreakdown, PriceTable, PricingSettings, QuoteTotals } from '../types';
 
 export const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
@@ -53,7 +53,7 @@ export function priceCuttingList(list: CuttingList, prices: PriceTable, settings
   const accLines = list.accessories.map((a) => {
     const unitPrice = prices.accessories[a.code];
     if (unitPrice == null) missing.push(a.name);
-    return { code: a.code, name: a.name, qty: a.qty, unitPrice: unitPrice ?? 0, cost: a.qty * (unitPrice ?? 0) };
+    return { code: a.code, name: a.name, unit: a.unit, qty: a.qty, unitPrice: unitPrice ?? 0, cost: a.qty * (unitPrice ?? 0) };
   });
   const accCost = accLines.reduce((s, a) => s + a.cost, 0);
 
@@ -91,3 +91,13 @@ export function quoteTotals(items: { totalPrice: number; totalCost: number }[], 
   const total = round2(subtotal - discountValue);
   return { subtotal, discountPct: pct, discountValue, total, totalCost, grossProfit: round2(total - totalCost) };
 }
+
+/** Default price list for a new tenant (single source of truth for API + demo). */
+export interface DefaultPrice { category: 'aluminum' | 'glass' | 'accessory'; key: string; label: string; unit: 'kg' | 'm2' | 'un' | 'm'; price: number; group?: string }
+
+export const DEFAULT_PRICE_LIST: DefaultPrice[] = [
+  ...Object.entries(FINISHES).map(([key, f]) => ({ category: 'aluminum' as const, key, label: `Alumínio ${f.label}`, unit: 'kg' as const, price: f.defaultPrice })),
+  ...Object.entries(GLASSES).filter(([k]) => k !== 'SEM_VIDRO')
+    .map(([key, g]) => ({ category: 'glass' as const, key, label: g.label, unit: 'm2' as const, price: g.defaultPrice })),
+  ...Object.entries(ACCESSORIES).map(([key, a]) => ({ category: 'accessory' as const, key, label: a.label, unit: a.unit, price: a.defaultPrice, group: a.group })),
+];

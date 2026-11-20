@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { type Finish, type GlassCode, type ProductLine, type TypologyId } from '@vidrapro/engine';
+import { drawingFor, type Finish, type GlassCode, type ProductLine, type TypologyId } from '@vidrapro/engine';
 import { Logo } from '../components/Layout';
 import { Schematic } from '../components/schematic/Schematic';
 import { ErrorBox, PageLoader, StatusChip, toast, useLoad } from '../components/ui';
@@ -11,17 +11,21 @@ import type { QuoteStatus, TenantBrand } from '../lib/types';
 
 interface DocItem {
   description: string; location_label: string | null; typology: TypologyId; line: ProductLine;
-  width_mm: number; height_mm: number; quantity: number; unit_price: number; total_price: number;
+  width_mm: number; height_mm: number; depth_mm?: number | null; quantity: number; unit_price: number; total_price: number;
   finish: Finish; glass_code: GlassCode;
 }
 interface DocProps {
   tenant: TenantBrand & { footer?: string | null };
-  number: number; customerName: string; customerPhone?: string | null; customerAddress?: string | null;
+  customerName: string; customerPhone?: string | null; customerAddress?: string | null;
   createdAt: string; validUntil: string | null; notes: string | null;
   items: DocItem[]; subtotal: number; discountPct: number; discountValue: number; total: number;
 }
 
-/** Branded, printable A4 quote. Used by the internal view and by the public link. */
+/**
+ * Branded, printable A4 quote — this is what the CUSTOMER receives (PDF or link).
+ * It intentionally has NO internal quote number; the number lives only in the
+ * company panel (toolbar above the document, which is not printed).
+ */
 export function QuoteDocument(d: DocProps) {
   const footer = d.tenant.footer ?? d.tenant.quote_footer_notes;
   return (
@@ -43,8 +47,7 @@ export function QuoteDocument(d: DocProps) {
             </div>
           </div>
           <div className="text-left sm:text-right">
-            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70 print:text-slate-400">Orçamento</div>
-            <div className="text-3xl font-extrabold">{quoteNo(d.number)}</div>
+            <div className="text-3xl font-extrabold tracking-tight">Orçamento</div>
             <div className="mt-1 text-xs text-white/85 print:text-slate-500">Emitido em {dateBR(d.createdAt)}{d.validUntil && <> · Válido até <b>{dateBR(d.validUntil)}</b></>}</div>
           </div>
         </div>
@@ -65,7 +68,8 @@ export function QuoteDocument(d: DocProps) {
             {d.items.map((it, i) => (
               <div key={i} className="avoid-break grid grid-cols-[72px_1fr] gap-x-4 gap-y-1 py-4 sm:grid-cols-[96px_1fr_60px_110px_110px] sm:items-center">
                 <div className="row-span-2 h-20 rounded-lg bg-gradient-to-b from-white to-slate-50 p-1 ring-1 ring-slate-100 sm:row-span-1">
-                  <Schematic compact typology={it.typology} widthMm={it.width_mm} heightMm={it.height_mm} finish={it.finish} glassCode={it.glass_code} className="h-full w-full" />
+                  <Schematic compact drawing={drawingFor({ typology: it.typology, line: it.line, widthMm: it.width_mm, heightMm: it.height_mm, depthMm: it.depth_mm ?? undefined, finish: it.finish, glassCode: it.glass_code })}
+                    finish={it.finish} glassCode={it.glass_code} className="h-full w-full" />
                 </div>
                 <div>
                   {it.location_label && <div className="text-[11px] font-bold uppercase tracking-wide text-brand-600">{it.location_label}</div>}
@@ -166,7 +170,7 @@ export function QuoteViewPage({ quoteId }: { quoteId: string }) {
       )}
 
       <QuoteDocument
-        tenant={data.tenant} number={q.number} customerName={q.customer_name} customerPhone={q.customer_phone}
+        tenant={data.tenant} customerName={q.customer_name} customerPhone={q.customer_phone}
         customerAddress={q.customer_address} createdAt={q.created_at} validUntil={q.valid_until} notes={q.notes}
         items={data.items} subtotal={q.subtotal} discountPct={q.discount_pct} discountValue={q.discount_value} total={q.total}
       />
@@ -181,7 +185,7 @@ export function PublicQuotePage({ token }: { token: string }) {
   if (error || !data) return <div className="p-6"><ErrorBox message="Orçamento não encontrado ou expirado." /></div>;
   const q = data.quote;
   const wa = data.tenant.whatsapp
-    ? `https://wa.me/${data.tenant.whatsapp}?text=${encodeURIComponent(`Olá! Quero aprovar o orçamento ${quoteNo(q.number)}.`)}`
+    ? `https://wa.me/${data.tenant.whatsapp}?text=${encodeURIComponent(`Olá! Sou ${q.customer_name} e quero aprovar o orçamento de ${dateBR(q.created_at)} (total ${brl(q.total)}).`)}`
     : null;
   return (
     <div className="px-4 py-6 sm:py-10">
@@ -189,7 +193,7 @@ export function PublicQuotePage({ token }: { token: string }) {
         <button className="btn-outline" onClick={() => window.print()}><Icon name="printer" className="h-4 w-4" />Salvar PDF</button>
         {wa && <a className="btn-whatsapp" href={wa} target="_blank" rel="noreferrer"><Icon name="whatsapp" className="h-4 w-4" />Aprovar pelo WhatsApp</a>}
       </div>
-      <QuoteDocument tenant={data.tenant} number={q.number} customerName={q.customer_name} createdAt={q.created_at}
+      <QuoteDocument tenant={data.tenant} customerName={q.customer_name} createdAt={q.created_at}
         validUntil={q.valid_until} notes={q.notes} items={data.items} subtotal={q.subtotal} discountPct={q.discount_pct}
         discountValue={q.discount_value} total={q.total} />
       <div className="no-print mx-auto mt-6 flex max-w-[860px] items-center justify-center gap-2 text-xs text-slate-400">

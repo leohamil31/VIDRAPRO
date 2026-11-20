@@ -1,4 +1,6 @@
-import type { CuttingList, Finish, GlassCode, ItemInput, PriceBreakdown, PriceTable, PricingSettings, ProductLine, TypologyId } from '@vidrapro/engine';
+import type { CuttingList, Finish, GlassCode, ItemInput, LineDefinition, PriceBreakdown, PriceTable, PricingSettings, ProductLine, TypologyId } from '@vidrapro/engine';
+
+export type { LineDefinition };
 
 export type QuoteStatus = 'rascunho' | 'enviado' | 'aprovado' | 'em_producao' | 'concluido' | 'perdido';
 export type SubscriptionStatus = 'trial' | 'active' | 'past_due' | 'canceled';
@@ -33,7 +35,8 @@ export interface MaterialPrice {
   category: 'aluminum' | 'glass' | 'accessory';
   key: string;
   label: string;
-  unit: 'kg' | 'm2' | 'un';
+  unit: 'kg' | 'm2' | 'un' | 'm';
+  group?: string;
   price: number;
   active: boolean;
 }
@@ -60,6 +63,7 @@ export interface QuoteItemRow {
   location_label: string | null;
   width_mm: number;
   height_mm: number;
+  depth_mm?: number | null;
   finish: Finish;
   glass_code: GlassCode;
   quantity: number;
@@ -113,9 +117,10 @@ export interface Stats {
 }
 
 export interface PublicQuote {
-  quote: Pick<QuoteRecord, 'number' | 'customer_name' | 'status' | 'subtotal' | 'discount_pct' | 'discount_value' | 'total' | 'notes' | 'valid_until' | 'created_at'>;
+  /** No `number`: the internal quote number is never shown to the customer. */
+  quote: Pick<QuoteRecord, 'customer_name' | 'status' | 'subtotal' | 'discount_pct' | 'discount_value' | 'total' | 'notes' | 'valid_until' | 'created_at'>;
   tenant: TenantBrand & { footer?: string | null };
-  items: Pick<QuoteItemRow, 'description' | 'location_label' | 'typology' | 'width_mm' | 'height_mm' | 'quantity' | 'unit_price' | 'total_price' | 'finish' | 'glass_code' | 'line'>[];
+  items: Pick<QuoteItemRow, 'description' | 'location_label' | 'typology' | 'width_mm' | 'height_mm' | 'depth_mm' | 'quantity' | 'unit_price' | 'total_price' | 'finish' | 'glass_code' | 'line'>[];
 }
 
 export interface CuttingListResponse {
@@ -124,7 +129,7 @@ export interface CuttingListResponse {
   bars: { finish: Finish; plans: import('@vidrapro/engine').BarPlan[] }[];
 }
 
-export interface PricingContext { prices: PriceTable; settings: PricingSettings }
+export interface PricingContext { prices: PriceTable; settings: PricingSettings; lines: LineDefinition[] }
 
 export interface Session {
   token: string;

@@ -1,7 +1,7 @@
 import { createDemoApi } from './demo';
 import { ApiError, sessionStore } from './session';
 import type {
-  CuttingListResponse, MaterialPrice, PricingContext, PublicQuote, QuoteDetail, QuoteInput, QuoteStatus,
+  CuttingListResponse, LineDefinition, MaterialPrice, PricingContext, PublicQuote, QuoteDetail, QuoteInput, QuoteStatus,
   QuoteSummary, Session, Stats, Tenant,
 } from './types';
 
@@ -24,6 +24,10 @@ export interface Api {
   deleteQuote(id: string): Promise<void>;
   share(id: string): Promise<{ url: string; message: string; publicUrl: string }>;
   cuttingList(id: string): Promise<CuttingListResponse>;
+  /** Built-in + custom lines */
+  listLines(): Promise<{ lines: LineDefinition[] }>;
+  saveLine(line: LineDefinition, isNew: boolean): Promise<{ line: LineDefinition }>;
+  deleteLine(id: string): Promise<void>;
   publicQuote(token: string): Promise<PublicQuote>;
 }
 
@@ -76,6 +80,9 @@ function createHttpApi(baseUrl: string): Api {
     deleteQuote: (id) => req('DELETE', `/quotes/${id}`),
     share: (id) => req('POST', `/quotes/${id}/share`),
     cuttingList: (id) => req('GET', `/quotes/${id}/cutting-list`),
+    listLines: () => req('GET', '/settings/lines'),
+    saveLine: (line, isNew) => req(isNew ? 'POST' : 'PUT', isNew ? '/settings/lines' : `/settings/lines/${line.id}`, line),
+    deleteLine: (id) => req('DELETE', `/settings/lines/${id}`),
     publicQuote: (token) => req('GET', `/public/quotes/${token}`),
   };
 }

@@ -42,7 +42,9 @@ export default function App() {
   else if ((m = match('/orcamentos/:id/editar', path))) page = <QuoteBuilder quoteId={m.id} />;
   else if ((m = match('/orcamentos/:id/corte', path))) page = <CuttingListPage quoteId={m.id} />;
   else if ((m = match('/orcamentos/:id', path))) page = <QuoteViewPage quoteId={m.id} />;
-  else if (path.startsWith('/configuracoes')) page = <Settings />;
+  else if (path === '/configuracoes/precos') page = <Settings tab="precos" />;
+  else if (path === '/configuracoes/linhas') page = <Settings tab="linhas" />;
+  else if (path.startsWith('/configuracoes')) page = <Settings tab="empresa" />;
   else page = <div className="glass p-10 text-center text-slate-500">Página não encontrada.</div>;
 
   return (

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { DEFAULT_PRICE_LIST } from '@vidrapro/engine';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { adminPool, withAdminTx } from '../db';
@@ -34,7 +35,13 @@ async function createTenantWithOwner(input: z.infer<typeof signupSchema>, authUs
       `INSERT INTO users (tenant_id, auth_user_id, email, password_hash, name, role)
        VALUES ($1, $2, $3, $4, $5, 'owner') RETURNING id, name, email, role`,
       [tenant.id, authUserId, input.email, passwordHash, input.name]);
-    await db.query('SELECT seed_tenant_prices($1)', [tenant.id]);
+    // Seed the full catalogue (aluminium per finish, glass, itemised accessories) from the engine
+    for (const p of DEFAULT_PRICE_LIST) {
+      await db.query(
+        `INSERT INTO material_prices (tenant_id, category, key, label, unit, price) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (tenant_id, category, key) DO NOTHING`,
+        [tenant.id, p.category, p.key, p.label, p.unit, p.price]);
+    }
     return { tenant, user };
   });
 }

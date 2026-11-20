@@ -33,10 +33,9 @@ create type subscription_status as enum ('trial', 'active', 'past_due', 'cancele
 create type user_role           as enum ('owner', 'admin', 'seller', 'workshop');
 create type material_category   as enum ('aluminum', 'glass', 'accessory');
 create type quote_status        as enum ('rascunho', 'enviado', 'aprovado', 'em_producao', 'concluido', 'perdido');
-create type aluminum_finish     as enum ('BRANCO', 'PRETO', 'NATURAL_FOSCO', 'AMADEIRADO');
-create type typology_id         as enum ('JANELA_CORRER_2F', 'JANELA_CORRER_4F', 'PORTA_CORRER_2F',
-                                         'BOX_FRONTAL', 'PORTA_PIVOTANTE');
-create type product_line        as enum ('SUPREMA', 'GOLD', 'TEMPERADO');
+create type line_family         as enum ('ESQUADRIA', 'FACHADA', 'GUARDA_CORPO');
+-- Typology, line, finish and glass codes are TEXT validated by the engine
+-- (lines are tenant-extensible, models grow without migrations).
 
 -- -----------------------------------------------------------------------------
 -- Tenants (one row per vidraçaria / serralheria)
@@ -112,16 +111,34 @@ create table material_prices (
   category    material_category not null,
   key         text not null,
   label       text not null,
-  unit        text not null check (unit in ('kg', 'm2', 'un')),
+  unit        text not null check (unit in ('kg', 'm2', 'un', 'm')),
   price       numeric(12,2) not null check (price >= 0),
   active      boolean not null default true,
   updated_at  timestamptz not null default now(),
   unique (tenant_id, category, key),
   check ( (category = 'aluminum'  and unit = 'kg')
        or (category = 'glass'     and unit = 'm2')
-       or (category = 'accessory' and unit = 'un') )
+       or (category = 'accessory' and unit in ('un', 'm')) )   -- acessórios por unidade ou por metro
 );
 create index material_prices_tenant_idx on material_prices (tenant_id, category);
+
+-- -----------------------------------------------------------------------------
+-- Custom aluminium lines (tenant copies a built-in line and edits codes,
+-- kg/m and deductions). Built-in lines live in the engine, not here.
+-- -----------------------------------------------------------------------------
+create table product_lines (
+  id          uuid primary key default gen_random_uuid(),
+  tenant_id   uuid not null references tenants(id) on delete cascade,
+  key         text not null check (key ~ '^[A-Z0-9_]{2,40}$'),
+  name        text not null check (length(name) between 2 and 80),
+  family      line_family not null,
+  definition  jsonb not null,                -- { profiles: {role: {code,name,kgPerM}}, params: {group: {key: mm}} }
+  active      boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (tenant_id, key)
+);
+create index product_lines_tenant_idx on product_lines (tenant_id);
 
 -- -----------------------------------------------------------------------------
 -- Customers (light CRM; quotes may also hold an inline customer snapshot)
@@ -178,12 +195,13 @@ create table quote_items (
   tenant_id        uuid not null references tenants(id) on delete cascade,
   quote_id         uuid not null references quotes(id) on delete cascade,
   position         int not null default 0,
-  typology         typology_id not null,
-  line             product_line not null,
+  typology         text not null,                           -- engine TypologyId
+  line             text not null,                           -- built-in or product_lines.key
   location_label   text,                                    -- "Quarto casal", "Banheiro social"
-  width_mm         int not null check (width_mm between 200 and 6000),
-  height_mm        int not null check (height_mm between 200 and 3200),
-  finish           aluminum_finish not null,
+  width_mm         int not null check (width_mm between 100 and 30000),
+  height_mm        int not null check (height_mm between 100 and 30000),
+  depth_mm         int check (depth_mm between 100 and 5000),  -- box de canto
+  finish           text not null,
   glass_code       text not null,
   quantity         int not null check (quantity between 1 and 500),
   unit_cost        numeric(12,2) not null,
@@ -254,6 +272,7 @@ begin new.updated_at = now(); return new; end $$;
 create trigger tenants_touch before update on tenants for each row execute function touch_updated_at();
 create trigger quotes_touch  before update on quotes  for each row execute function touch_updated_at();
 create trigger prices_touch  before update on material_prices for each row execute function touch_updated_at();
+create trigger lines_touch   before update on product_lines   for each row execute function touch_updated_at();
 
 -- BEFORE: stamp milestone timestamps on NEW
 create or replace function stamp_quote_status() returns trigger language plpgsql as $$
@@ -285,6 +304,7 @@ create trigger quotes_status_log after insert or update of status on quotes
 alter table tenants              enable row level security;
 alter table users                enable row level security;
 alter table material_prices      enable row level security;
+alter table product_lines        enable row level security;
 alter table customers            enable row level security;
 alter table quotes               enable row level security;
 alter table quote_items          enable row level security;
@@ -294,6 +314,7 @@ alter table billing_events       enable row level security;
 alter table tenants              force row level security;
 alter table users                force row level security;
 alter table material_prices      force row level security;
+alter table product_lines        force row level security;
 alter table customers            force row level security;
 alter table quotes               force row level security;
 alter table quote_items          force row level security;
@@ -308,7 +329,7 @@ create policy tenant_self_update on tenants for update using (id = current_tenan
 do $$
 declare t text;
 begin
-  foreach t in array array['users','material_prices','customers','quotes','quote_items','quote_status_history']
+  foreach t in array array['users','material_prices','product_lines','customers','quotes','quote_items','quote_status_history']
   loop
     execute format(
       'create policy %I_tenant_isolation on %I for all
@@ -328,7 +349,7 @@ do $$ begin
 end $$;
 
 grant usage on schema public, auth to app_api;
-grant select, insert, update, delete on users, material_prices, customers, quotes,
+grant select, insert, update, delete on users, material_prices, product_lines, customers, quotes,
       quote_items, quote_status_history to app_api;
 grant usage on all sequences in schema public to app_api;
 grant select on tenants to app_api;
@@ -342,9 +363,9 @@ grant execute on function current_tenant_id() to app_api;
 -- Supabase: same restrictions for the `authenticated` role (direct client access)
 do $$ begin
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
-    grant select on tenants, users, material_prices, customers, quotes, quote_items,
+    grant select on tenants, users, material_prices, product_lines, customers, quotes, quote_items,
           quote_status_history to authenticated;
-    grant insert, update, delete on customers, quotes, quote_items, material_prices to authenticated;
+    grant insert, update, delete on customers, quotes, quote_items, material_prices, product_lines to authenticated;
     grant update (name, document, logo_url, whatsapp, email, address, default_margin_pct,
                   aluminum_loss_pct, glass_round_mm, glass_min_area_m2, labor_pct,
                   installation_per_item, quote_validity_days, quote_footer_notes)
@@ -356,13 +377,14 @@ end $$;
 
 -- -----------------------------------------------------------------------------
 -- Public, token-based quote view (no login). SECURITY DEFINER, returns only
--- customer-safe columns — never costs, margins or cutting lists.
+-- customer-safe columns — never costs, margins, cutting lists or the internal
+-- quote NUMBER (the number is for the company panel only).
 -- -----------------------------------------------------------------------------
 create or replace function public_quote(p_token text) returns jsonb
 language sql stable security definer set search_path = public as $$
   select jsonb_build_object(
     'quote', jsonb_build_object(
-      'number', q.number, 'customer_name', q.customer_name, 'status', q.status,
+      'customer_name', q.customer_name, 'status', q.status,
       'subtotal', q.subtotal, 'discount_pct', q.discount_pct, 'discount_value', q.discount_value,
       'total', q.total, 'notes', q.notes, 'valid_until', q.valid_until, 'created_at', q.created_at),
     'tenant', jsonb_build_object(
@@ -371,7 +393,7 @@ language sql stable security definer set search_path = public as $$
     'items', coalesce((
       select jsonb_agg(jsonb_build_object(
                'description', i.description, 'location_label', i.location_label,
-               'typology', i.typology, 'width_mm', i.width_mm, 'height_mm', i.height_mm,
+               'typology', i.typology, 'width_mm', i.width_mm, 'height_mm', i.height_mm, 'depth_mm', i.depth_mm,
                'quantity', i.quantity, 'unit_price', i.unit_price, 'total_price', i.total_price,
                'finish', i.finish, 'glass_code', i.glass_code, 'line', i.line)
              order by i.position)
@@ -387,28 +409,7 @@ do $$ begin
 end $$;
 
 -- -----------------------------------------------------------------------------
--- Seed default prices for a new tenant (called on signup)
--- Reference values (BRL) — every shop must review them in Configurações.
+-- Default prices are seeded by the API on signup from the engine's
+-- DEFAULT_PRICE_LIST (aluminium per finish, glass, ~45 itemised accessories),
+-- so the catalogue has a single source of truth.
 -- -----------------------------------------------------------------------------
-create or replace function seed_tenant_prices(p_tenant uuid) returns void
-language sql security definer set search_path = public as $$
-  insert into material_prices (tenant_id, category, key, label, unit, price) values
-    (p_tenant, 'aluminum',  'BRANCO',               'Alumínio Branco',               'kg', 48.00),
-    (p_tenant, 'aluminum',  'PRETO',                'Alumínio Preto',                'kg', 58.00),
-    (p_tenant, 'aluminum',  'NATURAL_FOSCO',        'Alumínio Natural Fosco',        'kg', 44.00),
-    (p_tenant, 'aluminum',  'AMADEIRADO',           'Alumínio Amadeirado',           'kg', 72.00),
-    (p_tenant, 'glass',     'COMUM_INCOLOR_4',      'Vidro Comum Incolor 4mm',       'm2', 95.00),
-    (p_tenant, 'glass',     'COMUM_MINIBOREAL_4',   'Vidro Comum Mini Boreal 4mm',   'm2', 120.00),
-    (p_tenant, 'glass',     'TEMPERADO_INCOLOR_6',  'Temperado Incolor 6mm',         'm2', 160.00),
-    (p_tenant, 'glass',     'TEMPERADO_INCOLOR_8',  'Temperado Incolor 8mm',         'm2', 210.00),
-    (p_tenant, 'glass',     'TEMPERADO_FUME_8',     'Temperado Fumê 8mm',            'm2', 260.00),
-    (p_tenant, 'glass',     'TEMPERADO_VERDE_8',    'Temperado Verde 8mm',           'm2', 250.00),
-    (p_tenant, 'glass',     'TEMPERADO_INCOLOR_10', 'Temperado Incolor 10mm',        'm2', 280.00),
-    (p_tenant, 'accessory', 'KIT_JANELA_2F',        'Kit Janela Correr 2F (roldanas, fecho, escovas)', 'un', 45.00),
-    (p_tenant, 'accessory', 'KIT_JANELA_4F',        'Kit Janela Correr 4F',          'un', 80.00),
-    (p_tenant, 'accessory', 'KIT_PORTA_CORRER_2F',  'Kit Porta Correr 2F (roldanas, fechadura)', 'un', 140.00),
-    (p_tenant, 'accessory', 'KIT_BOX_2F',           'Kit Box Frontal 2 Folhas',      'un', 180.00),
-    (p_tenant, 'accessory', 'KIT_BOX_4F',           'Kit Box Frontal 4 Folhas',      'un', 290.00),
-    (p_tenant, 'accessory', 'KIT_PIVOTANTE',        'Kit Pivotante (pivôs, puxador, fechadura)', 'un', 420.00)
-  on conflict (tenant_id, category, key) do nothing
-$$;

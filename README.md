@@ -53,23 +53,17 @@ Sem `VITE_API_URL` o frontend roda em **modo demonstração** (dados de exemplo 
 
 Testado em Postgres 16: inserção cruzada bloqueada por RLS, edição de assinatura negada, sem tenant = 0 linhas, numeração por tenant (#1, #2… independente).
 
-## Motor de cálculo
+## Motor de cálculo (v2)
 
-**Separação deliberada:** `cutting/` não conhece dinheiro; `pricing/` não conhece fórmulas. A oficina pode mudar uma dedução sem mexer em preço, e o comercial muda preço sem risco para o corte.
+📋 **[CHECKLIST.md](CHECKLIST.md)**: cada modelo, linha, acessório e etapa do fluxo, com o status de cada um.
 
-| Tipologia | Regra principal |
-|---|---|
-| Janela correr 2F (Suprema) | folha = (L − 2·10 + 50) ÷ 2 · altura folha = H − 45 · marco lateral = H − 32 |
-| Janela correr 4F (Suprema) | folha = (L − 20 + 2·50 + 20) ÷ 4 |
-| Porta correr 2F (Suprema/Gold) | parâmetros e perfis próprios por linha; alerta de peso por folha |
-| Box frontal 8mm | ≤ 1400 mm: 1 fixo + 1 móvel; acima: 2 fixos + 2 móveis · painel = (L + N/2·50) ÷ N · fixo H − 15, móvel H − 35 |
-| Pivotante 8/10mm | vidro (L − 8) × (H − 15) · alerta acima de 80 kg |
+- **27 modelos** em duas seções: *Esquadrias de alumínio* (janelas de correr 2F/4F, veneziana 3F, maxim-ar, basculante, abrir 2F, fixo; portas de correr 2F/4F, veneziana 3F, giro com vidro 1F/2F, giro lambri, giro veneziana; painel lambri, fachada pele de vidro, guarda-corpo de alumínio) e *Vidro temperado (Blindex)* (box frontal e de canto, pivotante, porta de abrir, porta de correr aparente, janelas 2F/4F, fixo, sacada retrátil, guarda-corpo com perfil U).
+- **Linhas como dados** (`packages/engine/src/lines.ts`): Suprema, Gold, Linha 30, Inova e Linha 16, mais fachada e guarda-corpo. Cada empresa copia uma linha e edita códigos, kg/m e descontos, sem mexer no código.
+- **45 acessórios itemizados** (roldanas, fechos, fechaduras, puxadores, dobradiças, pivôs, vedações por metro…), cada um com preço próprio.
+- **Desenho técnico gerado pelo motor** (`cutting.drawing`): um único componente SVG desenha qualquer modelo.
+- A separação continua a mesma: `cutting/` não conhece dinheiro e `pricing/` não conhece descontos.
 
-Preço: alumínio = Σ(comprimento × kg/m) × (1 + perda%) × R$/kg do acabamento · vidro = cada lado arredondado para cima (padrão 5 cm), área mínima por peça · kits por tipologia · `preço = custo × (1 + margem%)` (markup). Preço ausente é sinalizado e bloqueia o salvamento no servidor.
-
-> ⚠️ **Valide antes de produzir.** Códigos de perfil, pesos (kg/m) e descontos em `catalog.ts` são **valores de referência**, não de um catálogo específico. Confira com a sua extrusora (linha Suprema/Gold do seu fornecedor) e ajuste `SLIDING_PARAMS`, `BOX_PARAMS`, `PIVOT_PARAMS` e `PROFILES`. Os testes servem de rede de segurança ao alterar.
-
-O frontend roda o motor localmente para a **prévia ao vivo**; ao salvar, o **servidor recalcula** com a tabela de preços do banco (o cliente nunca é confiável) e grava um *snapshot* (`price_breakdown`, `cutting_list`, `engine_version`) — orçamentos antigos não mudam quando preços ou fórmulas mudam.
+> ⚠️ **Valide antes de produzir.** Códigos, pesos e descontos são valores de referência. Copie a linha e ajuste pelo catálogo do seu fornecedor.
 
 ## API
 
@@ -78,12 +72,13 @@ O frontend roda o motor localmente para a **prévia ao vivo**; ao salvar, o **se
 | POST | `/auth/signup`, `/auth/login` | modo local (scrypt + JWT) |
 | POST | `/auth/onboard` | modo Supabase Auth: cria a empresa do usuário |
 | GET/PUT | `/settings`, `/settings/prices` · POST `/settings/logo` | logo → Supabase Storage |
+| GET/POST/PUT/DELETE | `/settings/lines`, `/settings/lines/:id` | linhas padrão + linhas próprias |
 | GET | `/quotes`, `/quotes/stats`, `/quotes/pricing-context` | |
 | POST | `/quotes/preview` | cálculo sem salvar |
 | POST/GET/PUT/DELETE | `/quotes`, `/quotes/:id` | edição só em Rascunho/Enviado |
 | PATCH | `/quotes/:id/status` | kanban (oficina só move para Produção/Concluído) |
 | GET | `/quotes/:id/cutting-list` | lista consolidada + barras de 6 m por acabamento |
-| POST | `/quotes/:id/share` | marca Enviado, devolve link `wa.me` + URL pública |
+| POST | `/quotes/:id/share` | marca Enviado, devolve link `wa.me` + URL pública (sem o número interno) |
 | GET | `/public/quotes/:token` | página do cliente final (rate limited) |
 | POST | `/webhooks/billing` | HMAC `X-Signature: sha256=…`, idempotente por `id` |
 

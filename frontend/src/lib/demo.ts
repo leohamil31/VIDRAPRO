@@ -3,35 +3,25 @@
  * persists to localStorage. Enabled when VITE_API_URL is not set.
  */
 import {
-  buildWhatsAppMessage, calculateItem, optimizeBars, quoteTotals, waMeLink,
-  type CuttingList, type Finish, type PriceTable, type PricingSettings,
+  allLines, buildWhatsAppMessage, calculateItem, DEFAULT_PRICE_LIST, optimizeBars, quoteTotals, validateLineDefinition, waMeLink,
+  type CuttingList, type Finish, type LineDefinition, type PriceTable, type PricingSettings,
 } from '@vidrapro/engine';
 import type { Api } from './api';
 import { href } from './router';
 import { ApiError, sessionStore } from './session';
 import type { MaterialPrice, QuoteDetail, QuoteInput, QuoteItemRow, QuoteRecord, QuoteSummary, Tenant } from './types';
 
-interface DemoDB { tenant: Tenant; prices: MaterialPrice[]; quotes: { record: QuoteRecord; position: number; items: QuoteItemRow[] }[] }
+interface DemoDB {
+  tenant: Tenant;
+  prices: MaterialPrice[];
+  lines: LineDefinition[];
+  quotes: { record: QuoteRecord; position: number; items: QuoteItemRow[] }[];
+}
 
-const KEY = 'vidrapro.demo.v1';
+const KEY = 'vidrapro.demo.v2';
 let memory: DemoDB | null = null;
 
-export const DEFAULT_PRICES: MaterialPrice[] = [
-  ['aluminum', 'BRANCO', 'Alumínio Branco', 48], ['aluminum', 'PRETO', 'Alumínio Preto', 58],
-  ['aluminum', 'NATURAL_FOSCO', 'Alumínio Natural Fosco', 44], ['aluminum', 'AMADEIRADO', 'Alumínio Amadeirado', 72],
-  ['glass', 'COMUM_INCOLOR_4', 'Vidro Comum Incolor 4mm', 95], ['glass', 'COMUM_MINIBOREAL_4', 'Vidro Comum Mini Boreal 4mm', 120],
-  ['glass', 'TEMPERADO_INCOLOR_6', 'Temperado Incolor 6mm', 160], ['glass', 'TEMPERADO_INCOLOR_8', 'Temperado Incolor 8mm', 210],
-  ['glass', 'TEMPERADO_FUME_8', 'Temperado Fumê 8mm', 260], ['glass', 'TEMPERADO_VERDE_8', 'Temperado Verde 8mm', 250],
-  ['glass', 'TEMPERADO_INCOLOR_10', 'Temperado Incolor 10mm', 280],
-  ['accessory', 'KIT_JANELA_2F', 'Kit Janela Correr 2F (roldanas, fecho, escovas)', 45],
-  ['accessory', 'KIT_JANELA_4F', 'Kit Janela Correr 4F', 80],
-  ['accessory', 'KIT_PORTA_CORRER_2F', 'Kit Porta Correr 2F (roldanas, fechadura)', 140],
-  ['accessory', 'KIT_BOX_2F', 'Kit Box Frontal 2 Folhas', 180], ['accessory', 'KIT_BOX_4F', 'Kit Box Frontal 4 Folhas', 290],
-  ['accessory', 'KIT_PIVOTANTE', 'Kit Pivotante (pivôs, puxador, fechadura)', 420],
-].map(([category, key, label, price]) => ({
-  category, key, label, price, active: true,
-  unit: category === 'aluminum' ? 'kg' : category === 'glass' ? 'm2' : 'un',
-}) as MaterialPrice);
+export const DEFAULT_PRICES: MaterialPrice[] = DEFAULT_PRICE_LIST.map((p) => ({ ...p, active: true }));
 
 export function toPriceTable(prices: MaterialPrice[]): PriceTable {
   const t: PriceTable = { aluminumPerKg: {}, glassPerM2: {}, accessories: {} };
@@ -61,7 +51,13 @@ function load(): DemoDB {
   if (memory) return memory;
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return (memory = JSON.parse(raw));
+    if (raw) {
+      const db = JSON.parse(raw) as DemoDB;
+      // add accessories/glasses introduced after this browser was seeded
+      for (const p of DEFAULT_PRICES) if (!db.prices.some((x) => x.category === p.category && x.key === p.key)) db.prices.push({ ...p, id: uid() });
+      db.lines ??= [];
+      return (memory = db);
+    }
   } catch { /* ignore */ }
   return seed();
 }
@@ -69,14 +65,14 @@ function load(): DemoDB {
 function build(db: DemoDB, input: QuoteInput) {
   const table = toPriceTable(db.prices);
   const settings = settingsOf(db.tenant, input.marginPct);
-  const results = input.items.map(({ locationLabel, ...i }) => ({ locationLabel: locationLabel ?? null, r: calculateItem(i, table, settings) }));
+  const results = input.items.map(({ locationLabel, ...i }) => ({ locationLabel: locationLabel ?? null, r: calculateItem(i, table, settings, db.lines) }));
   const missing = [...new Set(results.flatMap((x) => x.r.pricing.missingPrices))];
   if (missing.length) throw new ApiError(422, `Cadastre os preços: ${missing.join(', ')}.`, 'MISSING_PRICES', missing);
   const totals = quoteTotals(results.map((x) => x.r.pricing), input.discountPct);
   const items: QuoteItemRow[] = results.map(({ locationLabel, r }, position) => ({
     id: uid(), position, typology: r.input.typology, line: r.input.line, location_label: locationLabel,
-    width_mm: r.input.widthMm, height_mm: r.input.heightMm, finish: r.input.finish, glass_code: r.input.glassCode,
-    quantity: r.input.quantity, unit_cost: r.pricing.unitCost, unit_price: r.pricing.unitPrice,
+    width_mm: r.input.widthMm, height_mm: r.input.heightMm, depth_mm: r.input.depthMm ?? null, finish: r.input.finish,
+    glass_code: r.input.glassCode, quantity: r.input.quantity, unit_cost: r.pricing.unitCost, unit_price: r.pricing.unitPrice,
     total_price: r.pricing.totalPrice, description: r.description, price_breakdown: r.pricing, cutting_list: r.cutting,
   }));
   return { items, totals, settings };
@@ -93,23 +89,27 @@ function seed(): DemoDB {
       subscription_status: 'trial', trial_ends_at: new Date(Date.now() + 12 * 864e5).toISOString(),
     },
     prices: DEFAULT_PRICES.map((p) => ({ ...p, id: uid() })),
+    lines: [],
     quotes: [],
   };
   const samples: [string, string, QuoteRecord['status'], QuoteInput['items']][] = [
     ['Mariana Albuquerque', '11991234567', 'rascunho', [
-      { typology: 'BOX_FRONTAL', line: 'TEMPERADO', widthMm: 1200, heightMm: 1900, finish: 'PRETO', glassCode: 'TEMPERADO_INCOLOR_8', quantity: 1, locationLabel: 'Banheiro suíte' }]],
+      { typology: 'BOX_CANTO', line: 'TEMPERADO', widthMm: 1000, depthMm: 900, heightMm: 1900, finish: 'PRETO', glassCode: 'TEMPERADO_INCOLOR_8', quantity: 1, locationLabel: 'Banheiro suíte' }]],
     ['Construtora Horizonte', '11930001122', 'enviado', [
       { typology: 'JANELA_CORRER_2F', line: 'SUPREMA', widthMm: 1200, heightMm: 1000, finish: 'BRANCO', glassCode: 'COMUM_INCOLOR_4', quantity: 8, locationLabel: 'Quartos' },
-      { typology: 'JANELA_CORRER_4F', line: 'SUPREMA', widthMm: 2000, heightMm: 1200, finish: 'BRANCO', glassCode: 'COMUM_INCOLOR_4', quantity: 4, locationLabel: 'Salas' }]],
+      { typology: 'JANELA_MAXIM_AR', line: 'SUPREMA', widthMm: 600, heightMm: 600, finish: 'BRANCO', glassCode: 'COMUM_MINIBOREAL_4', quantity: 4, locationLabel: 'Banheiros' },
+      { typology: 'PORTA_GIRO_LAMBRI', line: 'LINHA_30', widthMm: 800, heightMm: 2100, finish: 'BRANCO', glassCode: 'SEM_VIDRO', quantity: 2, locationLabel: 'Área de serviço' }]],
     ['Ricardo Menezes', '21998887766', 'enviado', [
-      { typology: 'PORTA_CORRER_2F', line: 'GOLD', widthMm: 1800, heightMm: 2150, finish: 'PRETO', glassCode: 'TEMPERADO_INCOLOR_8', quantity: 1, locationLabel: 'Varanda' }]],
+      { typology: 'PORTA_CORRER_4F', line: 'GOLD', widthMm: 3000, heightMm: 2200, finish: 'PRETO', glassCode: 'TEMPERADO_INCOLOR_8', quantity: 1, locationLabel: 'Varanda gourmet' },
+      { typology: 'GUARDA_CORPO_TEMPERADO', line: 'TEMPERADO', widthMm: 4200, heightMm: 1100, finish: 'PRETO', glassCode: 'LAMINADO_TEMPERADO_10', quantity: 1, locationLabel: 'Varanda gourmet' }]],
     ['Clínica Bem Estar', '11955554444', 'aprovado', [
-      { typology: 'PORTA_PIVOTANTE', line: 'TEMPERADO', widthMm: 1000, heightMm: 2200, finish: 'NATURAL_FOSCO', glassCode: 'TEMPERADO_INCOLOR_10', quantity: 1, locationLabel: 'Recepção' }]],
+      { typology: 'PORTA_PIVOTANTE', line: 'TEMPERADO', widthMm: 1000, heightMm: 2200, finish: 'NATURAL_FOSCO', glassCode: 'TEMPERADO_INCOLOR_10', quantity: 1, locationLabel: 'Recepção' },
+      { typology: 'FIXO_TEMPERADO', line: 'TEMPERADO', widthMm: 1500, heightMm: 2200, finish: 'NATURAL_FOSCO', glassCode: 'TEMPERADO_INCOLOR_10', quantity: 2, locationLabel: 'Recepção' }]],
     ['Juliana Prado', '11977776666', 'em_producao', [
-      { typology: 'JANELA_CORRER_2F', line: 'SUPREMA', widthMm: 1500, heightMm: 1200, finish: 'AMADEIRADO', glassCode: 'TEMPERADO_INCOLOR_6', quantity: 3, locationLabel: 'Quartos' },
+      { typology: 'JANELA_VENEZIANA_3F', line: 'SUPREMA', widthMm: 1500, heightMm: 1200, finish: 'AMADEIRADO', glassCode: 'COMUM_INCOLOR_4', quantity: 3, locationLabel: 'Quartos' },
       { typology: 'BOX_FRONTAL', line: 'TEMPERADO', widthMm: 1600, heightMm: 1900, finish: 'BRANCO', glassCode: 'TEMPERADO_FUME_8', quantity: 1, locationLabel: 'Banheiro social' }]],
-    ['Paulo Sérgio Lima', '11966665555', 'concluido', [
-      { typology: 'JANELA_CORRER_2F', line: 'SUPREMA', widthMm: 1000, heightMm: 600, finish: 'BRANCO', glassCode: 'COMUM_MINIBOREAL_4', quantity: 2, locationLabel: 'Banheiros' }]],
+    ['Edifício Atlântico', '1133334444', 'concluido', [
+      { typology: 'SACADA_RETRATIL', line: 'TEMPERADO', widthMm: 3500, heightMm: 1500, finish: 'BRANCO', glassCode: 'TEMPERADO_INCOLOR_8', quantity: 4, locationLabel: 'Sacadas' }]],
   ];
   samples.forEach(([name, phone, status, items], i) => {
     const { items: rows, totals, settings } = build(db, { customerName: name, discountPct: i === 1 ? 5 : 0, items });
@@ -128,7 +128,7 @@ function seed(): DemoDB {
   return db;
 }
 
-const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(structuredClone(v)), 120));
+const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(structuredClone(v)), 100));
 
 export function createDemoApi(): Api {
   const find = (id: string) => {
@@ -160,7 +160,7 @@ export function createDemoApi(): Api {
       save(db); return delay({ prices: db.prices });
     },
     async uploadLogo(dataUrl) { const db = load(); db.tenant.logo_url = dataUrl; save(db); return delay({ logo_url: dataUrl }); },
-    pricingContext: async () => { const db = load(); return delay({ prices: toPriceTable(db.prices), settings: settingsOf(db.tenant) }); },
+    pricingContext: async () => { const db = load(); return delay({ prices: toPriceTable(db.prices), settings: settingsOf(db.tenant), lines: db.lines }); },
     async listQuotes(p) {
       const s = p?.search?.toLowerCase();
       const quotes: QuoteSummary[] = load().quotes
@@ -229,7 +229,7 @@ export function createDemoApi(): Api {
       save(db);
       const publicUrl = `${location.origin}${href(`/p/${q.record.public_token}`)}`;
       const message = buildWhatsAppMessage({
-        companyName: db.tenant.name, customerName: q.record.customer_name, quoteNumber: q.record.number,
+        companyName: db.tenant.name, customerName: q.record.customer_name,
         items: q.items.map((i) => ({ description: i.description, quantity: i.quantity, totalPrice: i.total_price, locationLabel: i.location_label })),
         total: q.record.total, discountValue: q.record.discount_value, validUntil: q.record.valid_until, publicUrl,
       });
@@ -247,15 +247,27 @@ export function createDemoApi(): Api {
     },
     async publicQuote(tok) {
       const db = load(); const q = db.quotes.find((x) => x.record.public_token === tok);
-      if (!q) throw new ApiError(404, 'Orçamento não encontrado.');
+      if (!q || q.record.status === 'rascunho') throw new ApiError(404, 'Orçamento não encontrado.');
       const r = q.record;
       return delay({
-        quote: { number: r.number, customer_name: r.customer_name, status: r.status, subtotal: r.subtotal, discount_pct: r.discount_pct, discount_value: r.discount_value, total: r.total, notes: r.notes, valid_until: r.valid_until, created_at: r.created_at },
+        quote: { customer_name: r.customer_name, status: r.status, subtotal: r.subtotal, discount_pct: r.discount_pct, discount_value: r.discount_value, total: r.total, notes: r.notes, valid_until: r.valid_until, created_at: r.created_at },
         tenant: { ...brand(db.tenant), footer: db.tenant.quote_footer_notes },
-        items: q.items.map(({ description, location_label, typology, width_mm, height_mm, quantity, unit_price, total_price, finish, glass_code, line }) =>
-          ({ description, location_label, typology, width_mm, height_mm, quantity, unit_price, total_price, finish, glass_code, line })),
+        items: q.items.map(({ description, location_label, typology, width_mm, height_mm, depth_mm, quantity, unit_price, total_price, finish, glass_code, line }) =>
+          ({ description, location_label, typology, width_mm, height_mm, depth_mm, quantity, unit_price, total_price, finish, glass_code, line })),
       });
     },
+    async listLines() { return delay({ lines: allLines(load().lines) }); },
+    async saveLine(line, isNew) {
+      const db = load();
+      if (allLines().some((l) => l.builtIn && l.id === line.id)) throw new ApiError(409, 'Esse identificador é de uma linha padrão. Escolha outro.');
+      if (isNew && db.lines.some((l) => l.id === line.id)) throw new ApiError(409, 'Já existe uma linha com esse identificador.');
+      const issues = validateLineDefinition(line);
+      if (issues.length) throw new ApiError(422, issues.join(' '), 'LINE_INVALID', issues);
+      const clean = { ...line, builtIn: false };
+      db.lines = isNew ? [...db.lines, clean] : db.lines.map((l) => (l.id === line.id ? clean : l));
+      save(db); return delay({ line: clean });
+    },
+    async deleteLine(id) { const db = load(); db.lines = db.lines.filter((l) => l.id !== id); save(db); await delay(null); },
   };
 }
 
