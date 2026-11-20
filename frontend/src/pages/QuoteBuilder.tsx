@@ -181,6 +181,9 @@ export function QuoteBuilder({ quoteId }: { quoteId?: string }) {
                     <div className={cx('text-xs', c?.ok ? 'text-slate-500' : 'text-rose-600')}>
                       {c?.ok ? `${it.quantity}× · ${brl(c.r.pricing.totalPrice)}` : 'Corrigir item'}
                     </div>
+                    <div className="truncate text-[10px] text-slate-400">
+                      {TYPOLOGIES[it.typology].family === 'TEMPERADO' ? 'Temperado' : (lines.find((l) => l.id === it.line)?.name ?? it.line)}
+                    </div>
                   </div>
                 </button>
               );
@@ -212,9 +215,30 @@ export function QuoteBuilder({ quoteId }: { quoteId?: string }) {
               ))}
             </div>
 
+            {/* Line picker — first thing after the section toggle, so it is never missed */}
+            {meta.family !== 'TEMPERADO' && (
+              <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50/60 p-3">
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wide text-brand-700">
+                    {meta.family === 'ESQUADRIA' ? '1. Escolha a linha de esquadria' : '1. Sistema'}
+                  </span>
+                  <Link to="/configuracoes/linhas" className="text-xs font-semibold text-brand-600 underline-offset-2 hover:underline">+ Criar / editar linhas</Link>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {familyLines.map((l) => (
+                    <button key={l.id} onClick={() => update({ line: l.id })} title={l.description}
+                      className={cx('rounded-xl border px-3 py-2 text-sm font-semibold transition',
+                        item.line === l.id ? 'border-brand-600 bg-brand-600 text-white shadow' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300')}>
+                      {l.name}{!l.builtIn && <span className={cx('ml-1.5 rounded px-1 text-[10px]', item.line === l.id ? 'bg-white/25' : 'bg-violet-100 text-violet-700')}>minha</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {groups.map((g) => (
               <div key={g} className="mb-3">
-                <span className="label">{g}</span>
+                <span className="label">{meta.family !== 'TEMPERADO' && g === groups[0] ? `2. Modelo — ${g}` : g}</span>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
                   {typologiesByCategory(category).filter((t) => t.group === g).map((m) => (
                     <button key={m.id} onClick={() => changeTypology(m.id)} title={m.label}
@@ -229,24 +253,6 @@ export function QuoteBuilder({ quoteId }: { quoteId?: string }) {
                 </div>
               </div>
             ))}
-
-            {meta.family !== 'TEMPERADO' && (
-              <div className="mt-4">
-                <div className="flex items-baseline justify-between">
-                  <span className="label">{meta.family === 'ESQUADRIA' ? 'Linha de esquadria' : 'Sistema'}</span>
-                  <Link to="/configuracoes/linhas" className="text-xs font-semibold text-brand-600">+ Adicionar / editar linhas</Link>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {familyLines.map((l) => (
-                    <button key={l.id} onClick={() => update({ line: l.id })} title={l.description}
-                      className={cx('rounded-xl border px-3 py-2 text-sm font-semibold transition',
-                        item.line === l.id ? 'border-brand-500 bg-brand-50 text-brand-700 ring-4 ring-brand-100' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300')}>
-                      {l.name}{!l.builtIn && <span className="ml-1.5 rounded bg-violet-100 px-1 text-[10px] text-violet-700">minha</span>}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className={cx('mt-4 grid grid-cols-2 gap-3', meta.depth ? 'sm:grid-cols-5' : 'sm:grid-cols-4')}>
               <Field label={meta.depth ? 'Frontal (mm)' : 'Largura (mm)'} hint={`${meta.minW}–${meta.maxW}`}>

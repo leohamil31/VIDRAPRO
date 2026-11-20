@@ -1,4 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
+import { ENGINE_VERSION, TYPOLOGIES } from '@vidrapro/engine';
 import { api, lastSubscriptionStatus, sessionStore } from '../lib/api';
 import { cx } from '../lib/format';
 import { Link, navigate } from '../lib/router';
@@ -65,6 +66,9 @@ export function Layout({ path, session, children }: { path: string; session: Ses
             </Link>
           ))}
         </nav>
+        <div className="mb-3 text-center text-[11px] font-semibold text-slate-400">
+          Versão {ENGINE_VERSION} · {Object.keys(TYPOLOGIES).length} modelos
+        </div>
         {api.mode === 'demo' && (
           <div className="mb-3 rounded-xl border border-brand-100 bg-brand-50 p-3 text-xs text-brand-800">
             <b>Modo demonstração.</b> Dados salvos só neste navegador. Defina <code>VITE_API_URL</code> para usar a API.
@@ -86,7 +90,7 @@ export function Layout({ path, session, children }: { path: string; session: Ses
 
       {/* Mobile top bar */}
       <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-white/60 bg-white/70 px-4 py-3 backdrop-blur-xl lg:hidden">
-        <Logo />
+        <div className="flex items-baseline gap-2"><Logo /><span className="text-[10px] font-semibold text-slate-400">v{ENGINE_VERSION}</span></div>
         <button onClick={logout} className="rounded-lg p-2 text-slate-500" title="Sair"><Icon name="logout" /></button>
       </header>
 
